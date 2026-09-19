@@ -1,0 +1,42 @@
+.bar {
+  grid-column: 1 / -1;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0;
+  border-top: 1px solid var(--border);
+  background: #0a1016;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.bar > span,
+.bar > svg {
+  margin-left: 18px;
+}
+
+.bar > span:not(:first-of-type) {
+  padding-left: 18px;
+  border-left: 1px solid var(--border);
+}
+
+.complete {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #8ee8be;
+}
+
+.error {
+  color: #ff8b96;
+}
+
+.spin {
+  animation: rotate 800ms linear infinite;
+}
+
+@keyframes rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}

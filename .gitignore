@@ -1,0 +1,15 @@
+node_modules/
+.pnpm-store/
+dist/
+coverage/
+playwright-report/
+test-results/
+.DS_Store
+*.tsbuildinfo
+*.log
+.env
+.env.*
+!.env.example
+
+# Internal product concept and roadmap
+CodeLift.md

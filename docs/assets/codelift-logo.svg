@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" role="img" aria-labelledby="title description">
+  <title id="title">CodeLift logo</title>
+  <desc id="description">Code brackets surrounding an upward arrow</desc>
+  <rect x="5" y="5" width="182" height="182" rx="42" fill="#0b1117" stroke="#263541" stroke-width="10"/>
+  <path d="M67 50 31 96l36 46" fill="none" stroke="#e8f0f4" stroke-linecap="round" stroke-linejoin="round" stroke-width="13"/>
+  <path d="m125 50 36 46-36 46" fill="none" stroke="#e8f0f4" stroke-linecap="round" stroke-linejoin="round" stroke-width="13"/>
+  <path d="M96 142V51m-25 27 25-27 25 27" fill="none" stroke="#44d5e7" stroke-linecap="round" stroke-linejoin="round" stroke-width="13"/>
+</svg>

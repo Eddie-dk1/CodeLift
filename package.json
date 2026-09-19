@@ -1,0 +1,41 @@
+{
+  "name": "codelift-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Extractable TypeScript dependency analysis with an explainable graph.",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@12.4.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "preinstall": "node scripts/check-node.mjs",
+    "build": "pnpm -r --sort build",
+    "clean": "pnpm -r clean",
+    "dev": "pnpm --parallel --filter @codelift/studio-server --filter @codelift/studio dev",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "typecheck": "pnpm --filter @codelift/core build && pnpm --filter @codelift/studio-server build && pnpm -r --sort typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "ci": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "codelift": "node packages/cli/dist/bin.js"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.3.3",
+    "@playwright/test": "^1.55.0",
+    "@testing-library/jest-dom": "^6.8.0",
+    "@testing-library/react": "^16.3.0",
+    "@types/dagre": "^0.7.53",
+    "@types/node": "^24.7.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "jsdom": "^27.0.0",
+    "tsx": "^4.20.6",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0",
+    "vitest": "^4.0.0"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "@codelift/cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CodeLift command-line interface",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "codelift": "./dist/bin.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run ../../packages/cli/test"
+  },
+  "dependencies": {
+    "@codelift/core": "workspace:*",
+    "@codelift/studio-server": "workspace:*",
+    "commander": "^14.0.1"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "@codelift/studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CodeLift local dependency analysis interface",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "dev": "vite --host 127.0.0.1 --port 5173",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@codelift/core": "workspace:*",
+    "@dagrejs/dagre": "^1.1.5",
+    "@xyflow/react": "^12.9.0",
+    "lucide-react": "^0.544.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.0.4"
+  }
+}

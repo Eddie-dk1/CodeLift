@@ -1,0 +1,84 @@
+.node {
+  width: 196px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 0 14px;
+  border: 1px solid #53677c;
+  border-radius: 8px;
+  background: #121b24;
+  color: #dce7f2;
+  box-shadow: 0 9px 24px rgb(0 0 0 / 20%);
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    transform 140ms ease;
+}
+
+.node:hover,
+.selected {
+  border-color: #35cfe5;
+  background: #15242e;
+  transform: translateY(-1px);
+}
+
+.copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.copy strong,
+.copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copy strong {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.copy span {
+  color: #8295a8;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.external-package {
+  border-color: #5c6d81;
+}
+
+.node-builtin {
+  border-color: #5b766e;
+}
+
+.unresolved {
+  border-color: #ff5a69;
+  color: #ff8b96;
+}
+
+.issue {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  display: grid;
+  width: 21px;
+  height: 21px;
+  place-items: center;
+  border: 2px solid #0d141b;
+  border-radius: 50%;
+  background: #f3ac42;
+  color: #17120a;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.handle {
+  width: 2px;
+  height: 2px;
+  border: 0;
+  background: transparent;
+}

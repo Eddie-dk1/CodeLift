@@ -1,0 +1,28 @@
+{
+  "name": "@codelift/studio-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Loopback-only API for CodeLift Studio",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "dev": "tsx src/dev.ts --project ../../fixtures/node-esm-basic --entry src/index.ts --port 4317 --token dev-token",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run ../../packages/studio-server/test"
+  },
+  "dependencies": {
+    "@codelift/core": "workspace:*",
+    "@fastify/static": "^8.2.0",
+    "fastify": "^5.6.0"
+  }
+}

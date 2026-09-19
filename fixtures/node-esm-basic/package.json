@@ -1,0 +1,9 @@
+{
+  "name": "codelift-fixture-basic",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@scope/client": "^2.4.0",
+    "date-fns": "^4.1.0"
+  }
+}
