@@ -50,7 +50,7 @@ function installedNpmVersion(): string | null {
   const command = process.platform === "win32" ? "npm.cmd" : "npm";
   const result = spawnSync(command, ["--version"], {
     encoding: "utf8",
-    shell: false,
+    shell: process.platform === "win32",
     timeout: 2_000,
   });
   if (result.status !== 0) return null;
