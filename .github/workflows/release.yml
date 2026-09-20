@@ -129,4 +129,7 @@ jobs:
       - name: Publish with the release dist-tag
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN_BOOTSTRAP }}
-        run: npm publish release/codelift-cli-*.tgz --tag "${{ needs.validate.outputs.npm_tag }}" --access public --provenance
+        run: |
+          tarball=$(find "$GITHUB_WORKSPACE/release" -maxdepth 1 -type f -name 'codelift-cli-*.tgz' -print -quit)
+          test -n "$tarball"
+          npm publish "$tarball" --tag "${{ needs.validate.outputs.npm_tag }}" --access public --provenance
