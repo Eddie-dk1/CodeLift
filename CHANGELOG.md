@@ -3,7 +3,7 @@
 All notable changes to CodeLift are documented here. The project follows Semantic Versioning while
 public JSON schemas are versioned independently.
 
-## 0.4.0-beta.0 — unreleased
+## 0.4.0-beta.0 — 2026-09-20
 
 ### Added
 
@@ -23,6 +23,7 @@ public JSON schemas are versioned independently.
 - Release automation now validates tags and package versions, runs the complete quality and packed
   artifact smoke suite, and selects npm prerelease tags automatically.
 - The distributable package no longer includes JavaScript or declaration source maps.
+- npm releases use a protected GitHub environment and Trusted Publishing through GitHub OIDC.
 
 ### Security
 

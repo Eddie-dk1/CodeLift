@@ -15,13 +15,15 @@
 
 <p align="center">
   <img alt="Project status: beta" src="https://img.shields.io/badge/status-beta-44d5e7?style=flat-square&labelColor=0b1117" />
+  <a href="https://www.npmjs.com/package/codelift-cli"><img alt="npm beta version" src="https://img.shields.io/npm/v/codelift-cli/beta?style=flat-square&labelColor=0b1117&color=cb3837" /></a>
   <img alt="Node.js 24 or newer" src="https://img.shields.io/badge/node-%3E%3D24-78b85a?style=flat-square&labelColor=0b1117" />
   <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-e8f0f4?style=flat-square&labelColor=0b1117" />
 </p>
 
 > [!IMPORTANT]
-> CodeLift is pre-release software. The `codelift-cli` package is prepared for npm but has not been
-> published from this repository yet. Until it is published, use the source-checkout commands below.
+> CodeLift is beta software. The current release is
+> [`codelift-cli@0.4.0-beta.0`](https://www.npmjs.com/package/codelift-cli). Use the `beta` dist-tag
+> until the first stable release.
 
 ![CodeLift Studio showing a React dependency graph](docs/assets/codelift-studio.png)
 
@@ -44,7 +46,7 @@ source project.
 
 ## Fastest start
 
-After the beta package is published, open a terminal in the project you want to inspect:
+Open a terminal in the project you want to inspect:
 
 ```bash
 cd /path/to/your-project
@@ -65,7 +67,7 @@ npx codelift-cli@beta inspect src/index.ts    # report in the terminal
 If several TypeScript configurations can own the entrypoint, CodeLift does not guess. Studio asks
 you to select one; terminal commands print the candidates and exit with code `2`.
 
-## Run this repository today
+## Run from source
 
 Requirements:
 
@@ -295,7 +297,7 @@ All long-running APIs accept an optional `AbortSignal`.
 - Destination cannot exist, overlap the source, be its parent, or resolve to a filesystem/home root.
 - Export uses a temporary sibling and atomic rename.
 - Verification runs in a separate temporary copy with `NODE_PATH` and source-linking variables removed.
-- No telemetry, accounts, cloud upload, or automatic npm publication is included.
+- No telemetry, accounts, cloud upload, or automatic publication of extracted packages is included.
 
 See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
@@ -356,12 +358,14 @@ CI runs lint, type checking, unit/integration tests, builds, browser tests, and 
 Node 24 across Ubuntu, macOS, and Windows. See [docs/releasing.md](docs/releasing.md) for the guarded
 npm provenance workflow. The project is licensed under [MIT](LICENSE).
 
-## Release path
+## Release status
 
-- `0.2.0-alpha` — short launch, npm packaging, and React/resource analysis;
-- `0.3.0-alpha` — versioned plans and safe exporter;
-- `0.4.0-beta` — isolated verification and the complete Studio workflow;
+- `0.4.0-beta.0` — current npm beta with one-command launch, React/resource analysis, versioned
+  plans, safe export, isolated verification, and the complete Studio workflow;
 - `1.0.0` — after Node utility, React component, and alias-heavy real-world migrations stabilize the
   schemas and edge cases.
 
-Feedback is collected through GitHub Issues and voluntarily attached, sanitized reports only.
+See the [changelog](CHANGELOG.md) for release details. Feedback is collected through
+[GitHub Issues](https://github.com/Eddie-dk1/CodeLift/issues) and voluntarily attached, sanitized
+reports only. Contributions are welcome; read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a
+pull request.
