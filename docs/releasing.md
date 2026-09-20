@@ -3,16 +3,21 @@
 Publishing is deliberately separated from builds, installs, and the manually dispatched workflow.
 No lifecycle script publishes or contacts npm.
 
-## One-time GitHub and npm setup
+## Current release setup
 
-1. Protect `main`: disallow force pushes and deletion, require the `CI / Quality gate` check, and
-   require pull requests if that matches the maintainer workflow.
-2. Create the protected GitHub environment `npm`. Add required reviewers before a stable release.
-3. Create the `codelift-cli` package with the first authenticated npm publication. If npm requires a
-   bootstrap token, store it temporarily as the `NPM_TOKEN_BOOTSTRAP` environment secret and remove
-   it after Trusted Publishing is active.
-4. In npm package settings, configure this repository's `release.yml` workflow as a Trusted
-   Publisher. Later releases use GitHub OIDC provenance rather than a long-lived token.
+The initial `codelift-cli@0.4.0-beta.0` publication is complete. Releases now use this guarded setup:
+
+1. `main` rejects force pushes and deletion and requires the `CI / Quality gate` check.
+2. The protected GitHub environment `npm` requires maintainer approval before publishing.
+3. npm Trusted Publishing accepts only GitHub Actions runs from `Eddie-dk1/CodeLift`, workflow
+   `release.yml`, and environment `npm`.
+4. The workflow has `id-token: write` and publishes through short-lived GitHub OIDC credentials.
+5. No npm publish token is stored in GitHub Actions.
+
+If this setup is recreated for a fork, publish the package once with an authenticated maintainer
+account, configure the fork's exact repository, workflow filename, and environment as the npm
+Trusted Publisher, then remove every temporary bootstrap token. Never copy CodeLift's trusted
+publisher identity to an unrelated package or repository.
 
 The package name is intentional. If `npm view codelift-cli` returns an existing package, stop and
 verify ownership; do not silently rename the project.
@@ -52,12 +57,12 @@ the version:
 - `rc` → `next`
 - stable version → `latest`
 
-For `0.4.0-beta.0`, review the complete preflight report, tarball SHA-256, size, and file list first.
-After explicit approval, tag the reviewed commit:
+Before every release, review the complete preflight report, tarball SHA-256, size, and file list.
+After explicit approval, tag the reviewed commit with the new version, for example:
 
 ```bash
-git tag v0.4.0-beta.0
-git push origin v0.4.0-beta.0
+git tag v0.4.0-beta.1
+git push origin v0.4.0-beta.1
 ```
 
 The protected workflow then performs the equivalent of:
@@ -68,3 +73,10 @@ npm publish --tag beta --access public --provenance
 
 Never rerun a release with a different artifact under the same version. Bump the prerelease number
 instead.
+
+After npm confirms publication:
+
+1. verify the version and dist-tag with `npm view codelift-cli@VERSION`;
+2. run `npx codelift-cli@TAG --version` from a clean temporary directory;
+3. verify registry signatures and provenance;
+4. create a GitHub prerelease with notes derived from `CHANGELOG.md`.

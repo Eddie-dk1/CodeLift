@@ -2,7 +2,8 @@
 
 Analyze, extract, and verify one TypeScript or React entrypoint without changing the source project.
 
-> CodeLift is beta software. Use the `beta` dist-tag until the first stable release.
+[`codelift-cli`](https://www.npmjs.com/package/codelift-cli) is beta software. Use the `beta`
+dist-tag until the first stable release.
 
 ![CodeLift Studio showing a React dependency graph](https://raw.githubusercontent.com/Eddie-dk1/CodeLift/main/docs/assets/codelift-studio.png)
 
