@@ -14,6 +14,7 @@ import {
 } from "@codelift/core";
 import { startStudioServer } from "@codelift/studio-server";
 import { Command, CommanderError, InvalidArgumentError } from "commander";
+import { diagnoseProject, renderDoctorPretty } from "./doctor.js";
 import { renderJson, renderPretty } from "./render.js";
 
 export interface CliIo {
@@ -166,6 +167,35 @@ export async function runCli(argv: string[], io: CliIo = defaultIo): Promise<num
     );
 
   program
+    .command("doctor")
+    .description("Check the local runtime and project discovery without changing the project.")
+    .argument("[project]", "project root; defaults to the current directory")
+    .option("--entry <path>", "entrypoint relative to the project")
+    .option("--tsconfig <path>", "TypeScript configuration relative to the project")
+    .option("--format <format>", "pretty or json", "pretty")
+    .action(
+      async (
+        project: string | undefined,
+        options: { entry?: string; tsconfig?: string; format: string },
+      ) => {
+        if (!new Set(["pretty", "json"]).has(options.format)) {
+          throw new AnalysisError("FORMAT_INVALID", `Unknown output format: ${options.format}`);
+        }
+        const result = diagnoseProject({
+          projectRoot: path.resolve(project ?? process.cwd()),
+          ...(options.entry ? { entrypoint: options.entry } : {}),
+          ...(options.tsconfig ? { tsconfigPath: options.tsconfig } : {}),
+        });
+        io.stdout(
+          options.format === "json"
+            ? `${JSON.stringify(result, null, 2)}\n`
+            : renderDoctorPretty(result),
+        );
+        resultCode = result.status === "ready" ? 0 : 1;
+      },
+    );
+
+  program
     .command("inspect")
     .description("Analyze one entrypoint without modifying the source project.")
     .argument("<entry>", "entrypoint relative to the current project")
@@ -313,4 +343,12 @@ export async function runCli(argv: string[], io: CliIo = defaultIo): Promise<num
   return resultCode;
 }
 
+export {
+  type DoctorIssue,
+  type DoctorRequest,
+  type DoctorResult,
+  type DoctorRuntime,
+  diagnoseProject,
+  renderDoctorPretty,
+} from "./doctor.js";
 export { renderJson, renderPretty } from "./render.js";

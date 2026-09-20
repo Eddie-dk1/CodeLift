@@ -2,35 +2,131 @@ name: Release package
 
 on:
   workflow_dispatch:
-    inputs:
-      publish:
-        description: Publish codelift-cli to npm after all checks pass
-        required: true
-        type: boolean
-        default: false
+  push:
+    tags:
+      - "v*"
 
 permissions:
   contents: read
   id-token: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  release:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      npm_tag: ${{ steps.release.outputs.npm_tag }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12.4.0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - id: release
+        name: Validate release metadata
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+        run: node scripts/release-preflight.mjs
+      - name: Require release tags to point into main
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+      - run: pnpm audit --prod
+      - name: Inspect package contents
+        working-directory: packages/cli
+        run: npm pack --dry-run
+      - name: Install and exercise the real tarball
+        shell: bash
+        run: |
+          tarball_name=$(cd packages/cli && npm pack --silent --pack-destination "$RUNNER_TEMP")
+          tarball="$RUNNER_TEMP/$tarball_name"
+          if tar -tzf "$tarball" | grep -E '\.map$|package/(src|test|tests|fixtures|node_modules)/|package/(\.env[^/]*|\.npmrc|pnpm-lock\.yaml|pnpm-workspace\.yaml|tsconfig[^/]*)$'; then
+            echo "Source maps, tests, workspace files, secrets, and source trees must not be published in the CLI tarball."
+            exit 1
+          fi
+          smoke="$RUNNER_TEMP/codelift-package-smoke"
+          mkdir -p "$smoke"
+          npm install --prefix "$smoke" "$tarball" --ignore-scripts --no-audit --no-fund
+          "$smoke/node_modules/.bin/codelift" --version
+          "$smoke/node_modules/.bin/codelift" doctor "$GITHUB_WORKSPACE/fixtures/node-library" --entry src/index.ts --format json
+          "$smoke/node_modules/.bin/codelift" inspect src/index.ts --project "$GITHUB_WORKSPACE/fixtures/node-library" --format json
+          cd "$smoke"
+          node --input-type=module --eval 'const api = await import("codelift-cli/core"); for (const name of ["analyzeProject", "createExtractionPlan", "exportPackage", "verifyPackage"]) if (typeof api[name] !== "function") throw new Error(`Missing core export: ${name}`);'
+          "$smoke/node_modules/.bin/codelift" studio "$GITHUB_WORKSPACE/fixtures/node-library" --entry src/index.ts --no-open --port 4318 >"$RUNNER_TEMP/codelift-studio.log" 2>&1 &
+          studio_pid=$!
+          trap 'kill "$studio_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:4318/ >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:4318/ | grep -q '<div id="root"></div>'
+          kill "$studio_pid"
+          wait "$studio_pid" 2>/dev/null || true
+          trap - EXIT
+
+      - name: Write the release preflight summary
+        shell: bash
+        run: |
+          tarball=$(find "$RUNNER_TEMP" -maxdepth 1 -name 'codelift-cli-*.tgz' -print -quit)
+          {
+            echo "## CodeLift release preflight"
+            echo
+            echo "- Package: \`codelift-cli@${{ steps.release.outputs.version }}\`"
+            echo "- Git tag: \`v${{ steps.release.outputs.version }}\`"
+            echo "- npm dist-tag: \`${{ steps.release.outputs.npm_tag }}\`"
+            echo "- Tarball SHA-256: \`$(sha256sum "$tarball" | cut -d' ' -f1)\`"
+            echo "- Tarball size: \`$(stat -c%s "$tarball") bytes\`"
+            echo "- Publish command: \`npm publish --tag ${{ steps.release.outputs.npm_tag }} --access public\`"
+            echo
+            echo "All lint, typecheck, test, build, Playwright, production audit, package install, CLI, core API, and Studio smoke checks passed."
+            echo
+            echo "<details><summary>Tarball files</summary>"
+            echo
+            echo '```text'
+            tar -tzf "$tarball"
+            echo '```'
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: codelift-release-tarball
+          path: ${{ runner.temp }}/codelift-cli-*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    needs: validate
     runs-on: ubuntu-latest
     environment: npm
     steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 12.4.0
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm run ci
-      - run: npm pack --dry-run
-        working-directory: packages/cli
-      - if: ${{ inputs.publish }}
-        run: npm publish --provenance --access public
-        working-directory: packages/cli
+          package-manager-cache: false
+      - uses: actions/download-artifact@v7
+        with:
+          name: codelift-release-tarball
+          path: release
+      - name: Publish with the release dist-tag
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN_BOOTSTRAP }}
+        run: npm publish release/codelift-cli-*.tgz --tag "${{ needs.validate.outputs.npm_tag }}" --access public --provenance

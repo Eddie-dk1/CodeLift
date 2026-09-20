@@ -21,6 +21,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "ci": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "release:preflight": "node scripts/release-preflight.mjs",
     "codelift": "node packages/cli/dist/bin.js",
     "start": "pnpm build && node packages/cli/dist/bin.js",
     "demo": "pnpm build && node packages/cli/dist/bin.js fixtures/node-esm-basic"

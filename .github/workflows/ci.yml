@@ -20,11 +20,11 @@ jobs:
             node: 26
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
         with:
           version: 12.4.0
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node }}
           cache: pnpm
@@ -37,11 +37,11 @@ jobs:
   package-smoke:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
         with:
           version: 12.4.0
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: pnpm
@@ -55,16 +55,18 @@ jobs:
           cd /tmp/codelift-package-smoke
           npm install "$GITHUB_WORKSPACE/packages/cli/$tarball" --ignore-scripts --no-audit --no-fund
           ./node_modules/.bin/codelift --version
+          ./node_modules/.bin/codelift doctor "$GITHUB_WORKSPACE/fixtures/node-library" --entry src/index.ts --format json
           ./node_modules/.bin/codelift inspect src/index.ts --project "$GITHUB_WORKSPACE/fixtures/node-esm-basic" --format json
+          node --input-type=module --eval 'const api = await import("codelift-cli/core"); for (const name of ["analyzeProject", "createExtractionPlan", "exportPackage", "verifyPackage"]) if (typeof api[name] !== "function") throw new Error(`Missing core export: ${name}`);'
 
   e2e:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
         with:
           version: 12.4.0
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: pnpm
@@ -72,3 +74,19 @@ jobs:
       - run: pnpm build
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e
+
+  quality-gate:
+    name: Quality gate
+    if: always()
+    needs: [verify, package-smoke, e2e]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every CI job to pass
+        env:
+          VERIFY_RESULT: ${{ needs.verify.result }}
+          PACKAGE_RESULT: ${{ needs.package-smoke.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
+        run: |
+          test "$VERIFY_RESULT" = success
+          test "$PACKAGE_RESULT" = success
+          test "$E2E_RESULT" = success
