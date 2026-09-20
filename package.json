@@ -1,8 +1,8 @@
 {
   "name": "codelift-workspace",
-  "version": "0.1.0",
+  "version": "0.4.0-beta.0",
   "private": true,
-  "description": "Extractable TypeScript dependency analysis with an explainable graph.",
+  "description": "Analyze, extract, and verify TypeScript and React modules locally.",
   "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@12.4.0",
@@ -11,7 +11,7 @@
   },
   "scripts": {
     "preinstall": "node scripts/check-node.mjs",
-    "build": "pnpm -r --sort build",
+    "build": "pnpm --filter @codelift/core build && pnpm --filter @codelift/studio build && pnpm --filter @codelift/studio-server build && pnpm --filter codelift-cli build",
     "clean": "pnpm -r clean",
     "dev": "pnpm --parallel --filter @codelift/studio-server --filter @codelift/studio dev",
     "lint": "biome check .",
@@ -21,7 +21,9 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "ci": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
-    "codelift": "node packages/cli/dist/bin.js"
+    "codelift": "node packages/cli/dist/bin.js",
+    "start": "pnpm build && node packages/cli/dist/bin.js",
+    "demo": "pnpm build && node packages/cli/dist/bin.js fixtures/node-esm-basic"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.3",

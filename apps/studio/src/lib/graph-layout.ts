@@ -42,18 +42,24 @@ export function layoutGraph(result: AnalysisResult): {
     const target = result.nodes.find((node) => node.id === edge.target);
     const unresolved = target?.kind === "unresolved";
     const typeOnly = edge.kind === "type-only";
-    const color = unresolved ? "#ff5a69" : typeOnly ? "#9c7bf4" : "#35cfe5";
+    const asset = new Set(["asset-import", "style-import", "asset-reference"]).has(edge.kind);
+    const color = unresolved ? "#ff5a69" : typeOnly ? "#9c7bf4" : asset ? "#c48aca" : "#35cfe5";
     return {
       id: edge.id,
       source: edge.source,
       target: edge.target,
       type: "smoothstep",
-      label: edge.kind === "literal-dynamic-import" ? "dynamic" : undefined,
+      label:
+        edge.kind === "literal-dynamic-import"
+          ? "dynamic"
+          : asset
+            ? edge.kind.replace("-", " ")
+            : undefined,
       markerEnd: { type: MarkerType.ArrowClosed, color },
       style: {
         stroke: color,
         strokeWidth: 1.5,
-        strokeDasharray: typeOnly || unresolved ? "6 5" : undefined,
+        strokeDasharray: asset ? "2 4" : typeOnly || unresolved ? "6 5" : undefined,
       },
       labelStyle: { fill: "#9aabbc", fontSize: 10 },
       labelBgStyle: { fill: "#0d141b", fillOpacity: 0.94 },

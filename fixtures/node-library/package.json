@@ -1,0 +1,5 @@
+{
+  "name": "codelift-fixture-node-library",
+  "private": true,
+  "type": "module"
+}

@@ -1,8 +1,8 @@
 {
   "name": "@codelift/studio",
-  "version": "0.1.0",
+  "version": "0.4.0-beta.0",
   "private": true,
-  "description": "CodeLift local dependency analysis interface",
+  "description": "CodeLift local analysis and extraction interface",
   "license": "MIT",
   "type": "module",
   "scripts": {

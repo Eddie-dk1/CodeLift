@@ -1,0 +1,8 @@
+@font-face {
+  font-family: "CodeLift Fixture";
+  src: url("./fixture.woff2") format("woff2");
+}
+
+:root {
+  --card-text: #15212b;
+}

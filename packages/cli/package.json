@@ -1,8 +1,23 @@
 {
-  "name": "@codelift/cli",
-  "version": "0.1.0",
-  "private": true,
-  "description": "CodeLift command-line interface",
+  "name": "codelift-cli",
+  "version": "0.4.0-beta.0",
+  "description": "Analyze, extract, and verify TypeScript and React modules locally",
+  "keywords": [
+    "typescript",
+    "react",
+    "dependency-graph",
+    "code-extraction",
+    "refactoring"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Eddie-dk1/CodeLift.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/Eddie-dk1/CodeLift#readme",
+  "bugs": {
+    "url": "https://github.com/Eddie-dk1/CodeLift/issues"
+  },
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -10,15 +25,37 @@
   "bin": {
     "codelift": "./dist/bin.js"
   },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "studio",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node ../../scripts/package-cli.mjs",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run ../../packages/cli/test"
   },
   "dependencies": {
+    "commander": "^14.0.1",
+    "fastify": "^5.6.0",
+    "typescript-compat": "npm:@typescript/typescript6@^6.0.0"
+  },
+  "devDependencies": {
     "@codelift/core": "workspace:*",
-    "@codelift/studio-server": "workspace:*",
-    "commander": "^14.0.1"
+    "@codelift/studio-server": "workspace:*"
   }
 }

@@ -200,10 +200,18 @@ export function scanSourceFile(sourceFile: ts.SourceFile, relativePath: string):
 
 export function isSupportedSourceFile(fileName: string): boolean {
   const lower = fileName.toLowerCase();
-  return lower.endsWith(".ts") || lower.endsWith(".mts") || lower.endsWith(".d.ts");
+  return (
+    lower.endsWith(".ts") ||
+    lower.endsWith(".tsx") ||
+    lower.endsWith(".mts") ||
+    lower.endsWith(".d.ts")
+  );
 }
 
 export function looksLikeAssetSpecifier(specifier: string): boolean {
   const extension = path.extname(specifier).toLowerCase();
-  return extension.length > 0 && ![".js", ".mjs", ".ts", ".mts", ".d.ts"].includes(extension);
+  return (
+    extension.length > 0 &&
+    ![".js", ".jsx", ".mjs", ".ts", ".tsx", ".mts", ".d.ts"].includes(extension)
+  );
 }

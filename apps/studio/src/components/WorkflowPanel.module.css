@@ -1,0 +1,255 @@
+.panel {
+  padding: 17px;
+  border-top: 1px solid var(--border);
+}
+
+.title,
+.steps,
+.summary,
+.actions,
+.job,
+.success,
+.problem {
+  display: flex;
+  align-items: center;
+}
+
+.title {
+  gap: 8px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.steps {
+  gap: 5px;
+  margin: 12px 0 16px;
+}
+
+.steps span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-faint);
+  font-size: 9px;
+}
+
+.steps .activeStep {
+  border-color: #297989;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.form,
+.review,
+.verify {
+  display: grid;
+  gap: 10px;
+}
+
+.form label,
+.review label,
+.verify label {
+  display: grid;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.form input:not([type="checkbox"]),
+.review input:not([type="checkbox"]),
+.dependencies select {
+  width: 100%;
+  min-width: 0;
+  height: 33px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: #0c141b;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.dependencies {
+  display: grid;
+  gap: 7px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.dependencies strong {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.panel small {
+  color: var(--text-faint);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.form label.checkLabel,
+.verify label.checkLabel {
+  display: flex;
+  grid-template-columns: auto 1fr;
+  align-items: flex-start;
+  gap: 7px;
+}
+
+.panel button {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 11px;
+  border: 1px solid #55dfef;
+  border-radius: 5px;
+  background: var(--accent);
+  color: #061116;
+  font-size: 10px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.panel button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.panel .secondary {
+  border-color: var(--border-strong);
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.summary {
+  flex-wrap: wrap;
+  gap: 7px;
+  font-size: 9px;
+}
+
+.summary span {
+  padding: 3px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+
+.ready {
+  background: rgb(58 199 132 / 14%);
+  color: #67dca4;
+}
+
+.reviewStatus {
+  background: rgb(243 172 66 / 12%);
+  color: var(--warning);
+}
+
+.blocked {
+  background: rgb(255 90 105 / 12%);
+  color: var(--danger);
+}
+
+.destination {
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.panel details {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: #0c141b;
+}
+
+.panel summary {
+  padding: 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.panel ul {
+  max-height: 145px;
+  margin: 0;
+  padding: 0 8px 8px 23px;
+  overflow: auto;
+  color: var(--text-faint);
+  font-size: 9px;
+}
+
+.actions {
+  gap: 7px;
+}
+
+.actions button {
+  flex: 1;
+}
+
+.success,
+.problem,
+.job {
+  gap: 7px;
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.success {
+  color: #67dca4;
+}
+
+.problem {
+  color: var(--danger);
+}
+
+.job {
+  flex-wrap: wrap;
+  margin-top: 10px;
+  color: var(--text-muted);
+}
+
+.job button {
+  min-height: 24px;
+  margin-left: auto;
+  border-color: var(--border-strong);
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.report {
+  display: grid;
+  gap: 5px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.report > div {
+  display: grid;
+  grid-template-columns: 14px 1fr auto;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.report code {
+  color: var(--text-faint);
+}
+
+.spin {
+  animation: spin 800ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

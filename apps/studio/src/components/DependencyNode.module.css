@@ -55,6 +55,11 @@
   border-color: #5b766e;
 }
 
+.local-asset {
+  border-style: dashed;
+  border-color: #8a708f;
+}
+
 .unresolved {
   border-color: #ff5a69;
   color: #ff8b96;

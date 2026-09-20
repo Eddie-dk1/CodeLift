@@ -2,6 +2,7 @@ import type { AnalysisResult, GraphNode } from "@codelift/core";
 
 function nodeDescription(node: GraphNode): string {
   if (node.kind === "local-file") return node.path ?? node.label;
+  if (node.kind === "local-asset") return `${node.path ?? node.label} (asset)`;
   if (node.kind === "external-package") return `${node.packageName ?? node.label} (npm)`;
   if (node.kind === "node-builtin") return `${node.builtinName ?? node.label} (Node.js)`;
   return `${node.label} (unresolved)`;
@@ -16,7 +17,7 @@ export function renderPretty(result: AnalysisResult): string {
   const blockingIssues = result.issues.filter((issue) => issue.blocking).length;
   lines.push(`CodeLift analysis — ${result.entrypoint}`);
   lines.push(
-    `${result.stats.localFiles} files · ${result.stats.externalPackages} packages · ${result.cycles.length} cycles · ${result.issues.length} issues`,
+    `${result.stats.localFiles} files · ${result.stats.localAssets} assets · ${result.stats.externalPackages} packages · ${result.cycles.length} cycles · ${result.issues.length} issues`,
   );
   lines.push("");
   lines.push("Included files");

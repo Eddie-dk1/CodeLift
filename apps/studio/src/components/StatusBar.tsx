@@ -34,6 +34,7 @@ export function StatusBar({ result, loading, error }: StatusBarProps) {
         <CheckCircle2 size={15} /> Analysis complete
       </span>
       <span>{result.stats.localFiles} files included</span>
+      <span>{result.stats.localAssets} assets</span>
       <span>{result.stats.externalPackages} external dependencies</span>
       <span>{result.stats.issues} issues</span>
       <span>{result.stats.unresolvedImports} unresolved imports</span>

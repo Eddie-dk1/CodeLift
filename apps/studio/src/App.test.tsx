@@ -30,7 +30,7 @@ vi.mock("@xyflow/react", () => ({
 }));
 
 const analysis: AnalysisResult = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   project: {
     root: "/projects/invoice",
     tsconfig: "tsconfig.json",
@@ -79,6 +79,7 @@ const analysis: AnalysisResult = {
   ],
   stats: {
     localFiles: 2,
+    localAssets: 0,
     externalPackages: 0,
     nodeBuiltins: 0,
     unresolvedImports: 0,
@@ -108,7 +109,13 @@ beforeEach(() => {
           sourceFiles: ["src/index.ts", "src/format.ts"],
           initialTsconfig: "tsconfig.json",
           initialEntrypoint: "src/index.ts",
-          capabilities: { profile: "node-esm", sourcePreview: true, extraction: false },
+          ambiguousTsconfig: false,
+          capabilities: {
+            profiles: ["node-esm", "react-library"],
+            sourcePreview: true,
+            extraction: true,
+            verification: true,
+          },
         });
       }
       if (url === "/api/analyze") return response(analysis);

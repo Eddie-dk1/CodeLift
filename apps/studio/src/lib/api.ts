@@ -1,4 +1,10 @@
-import type { AnalysisResult } from "@codelift/core";
+import type {
+  AnalysisResult,
+  DependencyClassification,
+  ExportResult,
+  ExtractionPlan,
+  VerificationResult,
+} from "@codelift/core";
 
 export interface StudioSession {
   projectName: string;
@@ -7,16 +13,33 @@ export interface StudioSession {
   sourceFiles: string[];
   initialTsconfig: string | null;
   initialEntrypoint: string | null;
+  ambiguousTsconfig: boolean;
   capabilities: {
-    profile: string;
+    profiles: string[];
     sourcePreview: boolean;
     extraction: boolean;
+    verification: boolean;
   };
 }
 
 export interface SourcePreview {
   path: string;
   content: string;
+}
+
+export interface StudioJob {
+  id: string;
+  type: "export" | "verify";
+  status: "running" | "completed" | "failed" | "cancelled";
+  message: string;
+  destination?: string;
+  result?: ExportResult | VerificationResult;
+  error?: string;
+}
+
+export interface PlanResponse {
+  planId: string;
+  plan: ExtractionPlan;
 }
 
 function sessionToken(): string {
@@ -57,4 +80,47 @@ export function runAnalysis(tsconfigPath: string, entrypoint: string): Promise<A
 
 export function getSource(path: string): Promise<SourcePreview> {
   return request<SourcePreview>(`/api/source?path=${encodeURIComponent(path)}`);
+}
+
+export function createPlan(input: {
+  tsconfigPath: string;
+  entrypoint: string;
+  packageName: string;
+  destination: string;
+  acceptedWarningIds?: string[];
+  dependencyOverrides?: Record<string, DependencyClassification>;
+  copyLicense?: boolean;
+}): Promise<PlanResponse> {
+  return request<PlanResponse>("/api/plan", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function startExport(planId: string, confirmation: string): Promise<string> {
+  const response = await request<{ jobId: string }>("/api/export", {
+    method: "POST",
+    body: JSON.stringify({ planId, confirmation }),
+  });
+  return response.jobId;
+}
+
+export async function startVerification(
+  packageRoot: string,
+  install: boolean,
+  allowInstallScripts = false,
+): Promise<string> {
+  const response = await request<{ jobId: string }>("/api/verify", {
+    method: "POST",
+    body: JSON.stringify({ packageRoot, install, allowInstallScripts }),
+  });
+  return response.jobId;
+}
+
+export function getJob(jobId: string): Promise<StudioJob> {
+  return request<StudioJob>(`/api/jobs/${encodeURIComponent(jobId)}`);
+}
+
+export function cancelJob(jobId: string): Promise<StudioJob> {
+  return request<StudioJob>(`/api/jobs/${encodeURIComponent(jobId)}`, { method: "DELETE" });
 }

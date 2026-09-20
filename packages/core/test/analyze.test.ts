@@ -51,6 +51,7 @@ describe("analyzeProject", () => {
     const second = await analyzeProject(request, undefined, { now: () => 10 });
 
     expect(first.project.profileStatus).toBe("supported");
+    expect(first.schemaVersion).toBe(2);
     expect(first.nodes).toEqual(second.nodes);
     expect(first.edges).toEqual(second.edges);
     expect(first.cycles).toEqual(second.cycles);
@@ -72,6 +73,36 @@ describe("analyzeProject", () => {
     const reason = first.reasons.find((candidate) => candidate.nodeId === formatNode?.id);
     expect(reason?.nodePath).toEqual(["file:src/index.ts", "file:src/format.ts"]);
     expect(before).toBe(digestDirectory(projectRoot));
+  });
+
+  it("follows React TSX, CSS Modules, JSON, SVG, and font assets", async () => {
+    const result = await analyzeProject({
+      projectRoot: fixture("react-library"),
+      tsconfigPath: "tsconfig.json",
+      entrypoint: "src/Card.tsx",
+    });
+
+    expect(result.project).toMatchObject({
+      profile: "react-library",
+      profileStatus: "supported",
+    });
+    expect(result.stats.localFiles).toBe(2);
+    expect(result.stats.localAssets).toBe(6);
+    expect(result.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "local-asset", path: "src/Card.module.css" }),
+        expect.objectContaining({ kind: "local-asset", path: "src/copy.json" }),
+        expect.objectContaining({ kind: "local-asset", path: "src/mark.svg" }),
+        expect.objectContaining({ kind: "local-asset", path: "src/fixture.woff2" }),
+      ]),
+    );
+    expect(result.edges.map((edge) => edge.kind)).toEqual(
+      expect.arrayContaining(["asset-import", "style-import", "asset-reference"]),
+    );
+    expect(result.externalPackages).toEqual([
+      { name: "react", specifiers: ["react"], declaredRange: "^19.3.0" },
+    ]);
+    expect(result.issues).toHaveLength(0);
   });
 
   it("reports unsupported imports without executing source code", async () => {

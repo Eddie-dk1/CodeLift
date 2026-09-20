@@ -1,6 +1,7 @@
 node_modules/
 .pnpm-store/
 dist/
+packages/cli/studio/
 coverage/
 playwright-report/
 test-results/
@@ -10,6 +11,24 @@ test-results/
 .env
 .env.*
 !.env.example
+
+# Local credentials, keys, and private data
+.npmrc
+.envrc
+.direnv/
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.kdbx
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+*.bak
+*.backup
 
 # Internal product concept and roadmap
 CodeLift.md

@@ -1,0 +1,11 @@
+@import "./theme.css";
+
+.card {
+  padding: 1rem;
+  color: var(--card-text);
+  background: url("./mark.svg") no-repeat top right;
+}
+
+.raised {
+  composes: surface from "./surface.module.css";
+}

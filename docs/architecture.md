@@ -1,25 +1,53 @@
 # Architecture
 
-CodeLift has one analysis engine and two delivery surfaces.
+CodeLift ships one self-contained CLI package with a shared core and a loopback Studio.
 
 ```text
-CLI ───────────────┐
-                   ├── @codelift/core ── CompilerAdapter ── TypeScript 6 compatibility API
-Local Studio API ──┘
-        │
-        └── React Studio
+                         ┌─ analyzer ─ TypeScript 6 compatibility adapter
+codelift CLI ────────────┼─ planner ── versioned snapshot + decisions
+                         ├─ exporter ─ staging + atomic rename
+                         └─ verifier ─ isolated temporary copy
+                                  ▲
+React Studio ─ Fastify jobs ──────┘
 ```
 
-`@codelift/core` owns project loading, module resolution, graph traversal, issue detection, cycle
-analysis, and the versioned result contract. The CLI calls it directly. The Studio server exposes
-the same result over a loopback-only API and never executes analyzed code.
+## Packages
 
-The compiler integration is isolated behind `CompilerAdapter`. TypeScript 7.0 does not expose a
-programmatic compiler API, so the first release uses the official TypeScript 6 compatibility
-package. The adapter boundary is the migration point for the future TypeScript 7.1 API.
+- `@codelift/core` owns discovery, module/resource resolution, graph traversal, issue detection,
+  planning, export, and verification.
+- `@codelift/studio-server` exposes the core over a token-protected loopback API. Plans and jobs are
+  in-memory and scoped to one server session.
+- `@codelift/studio` provides the React graph, evidence inspector, plan review, export confirmation,
+  and verification report.
+- `codelift-cli` embeds the compiled outputs of all three packages plus the Studio static files. A
+  tarball therefore runs with npm/npx and does not require pnpm or the monorepo.
+
+## Contracts
+
+Analysis, plan, export, and verification results have independent schema versions. CLI discovery is
+convenient and may be interactive, while `analyzeProject()` keeps explicit paths so library calls
+remain deterministic.
+
+An extraction plan contains SHA-256 hashes of sources, assets, the TypeScript configuration, package
+manifest, and lockfile when present. Its portable digest deliberately excludes the absolute source
+root. Export recalculates every hash before writing.
 
 ## Trust boundary
 
-The source project is untrusted input. All Studio paths are resolved through `realpath`, must stay
-inside the configured project root, and are opened read-only. Symlinks cannot escape that root.
-The server binds to loopback, checks request origin, and requires a random per-session token.
+The source project is untrusted, read-only input. Paths are resolved through `realpath`, symlink
+escapes are rejected, and source code and project scripts are never executed.
+
+The Studio server binds to loopback, rejects cross-origin API requests, and requires a random
+session token. Export accepts only a plan previously created in the same session and requires an
+exact package-name confirmation. Studio verification accepts only a destination exported in that
+session.
+
+Export writes a temporary sibling directory and atomically renames it only after validation.
+Verification copies the result into a separate temporary directory, removes environment links to
+the source, disables lifecycle scripts by default, and runs only CodeLift-generated commands.
+
+## Compiler boundary
+
+CodeLift itself builds with TypeScript 7. Project analysis is isolated behind `CompilerAdapter` and
+currently uses the TypeScript 6 compatibility package. This boundary is the migration point for a
+future TypeScript compiler API.

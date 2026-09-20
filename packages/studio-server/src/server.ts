@@ -1,9 +1,23 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { AnalysisError, analyzeProject, isInsideRoot, normalizeRelativePath } from "@codelift/core";
-import fastifyStatic from "@fastify/static";
+import {
+  AnalysisError,
+  type AnalysisResult,
+  analyzeProject,
+  createExtractionPlan,
+  type DependencyClassification,
+  discoverProject,
+  type ExportResult,
+  type ExtractionPlan,
+  exportPackage,
+  isInsideRoot,
+  normalizeRelativePath,
+  TypeScriptCompilerAdapter,
+  type VerificationResult,
+  verifyPackage,
+} from "@codelift/core";
 import Fastify, { type FastifyInstance } from "fastify";
 
 export interface StudioServerOptions {
@@ -30,18 +44,41 @@ export interface RunningStudioServer extends StudioServer {
   url: string;
 }
 
+type JobType = "export" | "verify";
+type JobStatus = "running" | "completed" | "failed" | "cancelled";
+
+interface StudioJob {
+  id: string;
+  type: JobType;
+  status: JobStatus;
+  message: string;
+  createdAt: string;
+  planDigest?: string;
+  destination?: string;
+  result?: ExportResult | VerificationResult;
+  error?: string;
+  controller: AbortController;
+}
+
+function publicJob(job: StudioJob) {
+  const { controller: _controller, ...result } = job;
+  return result;
+}
+
 function realDirectory(candidate: string): string {
   const real = fs.realpathSync.native(path.resolve(candidate));
-  if (!fs.statSync(real).isDirectory())
+  if (!fs.statSync(real).isDirectory()) {
     throw new Error(`Project root is not a directory: ${candidate}`);
+  }
   return real;
 }
 
 function safeExistingPath(projectRoot: string, candidate: string): string {
   const absolute = path.isAbsolute(candidate) ? candidate : path.resolve(projectRoot, candidate);
   const real = fs.realpathSync.native(absolute);
-  if (!isInsideRoot(projectRoot, real))
+  if (!isInsideRoot(projectRoot, real)) {
     throw new AnalysisError("PATH_OUTSIDE_PROJECT", "Path is outside the Studio project root.");
+  }
   return real;
 }
 
@@ -50,38 +87,71 @@ function optionalRelativePath(projectRoot: string, candidate?: string): string |
   return normalizeRelativePath(projectRoot, safeExistingPath(projectRoot, candidate));
 }
 
-function discoverFiles(projectRoot: string): { sourceFiles: string[]; tsconfigs: string[] } {
-  const sourceFiles: string[] = [];
-  const tsconfigs: string[] = [];
-  const excluded = new Set([".git", "node_modules", "dist", "build", "coverage"]);
+function defaultWebRoot(): string {
+  return fileURLToPath(new URL("../../../apps/studio/dist/", import.meta.url));
+}
 
+function contentType(fileName: string): string {
+  const extension = path.extname(fileName).toLowerCase();
+  return (
+    {
+      ".css": "text/css; charset=utf-8",
+      ".html": "text/html; charset=utf-8",
+      ".ico": "image/x-icon",
+      ".js": "text/javascript; charset=utf-8",
+      ".json": "application/json; charset=utf-8",
+      ".map": "application/json; charset=utf-8",
+      ".png": "image/png",
+      ".svg": "image/svg+xml",
+      ".webp": "image/webp",
+      ".woff": "font/woff",
+      ".woff2": "font/woff2",
+    }[extension] ?? "application/octet-stream"
+  );
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function projectFingerprint(projectRoot: string): string {
+  const hash = createHash("sha256");
+  const excluded = new Set([
+    ".git",
+    ".next",
+    ".turbo",
+    "build",
+    "coverage",
+    "dist",
+    "node_modules",
+  ]);
+  const relevant = /\.(?:avif|css|gif|ico|jpe?g|json|mts|otf|png|svg|ts|tsx|ttf|webp|woff2?)$/u;
   const visit = (directory: string) => {
-    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-      if (excluded.has(entry.name)) continue;
+    for (const entry of fs
+      .readdirSync(directory, { withFileTypes: true })
+      .sort((left, right) => left.name.localeCompare(right.name))) {
+      if (entry.isSymbolicLink() || excluded.has(entry.name)) continue;
       const absolute = path.join(directory, entry.name);
-      if (entry.isSymbolicLink()) continue;
       if (entry.isDirectory()) {
         visit(absolute);
-        continue;
-      }
-      if (!entry.isFile()) continue;
-      const relative = normalizeRelativePath(projectRoot, absolute);
-      if (/^tsconfig(?:\.[\w-]+)?\.json$/u.test(entry.name)) tsconfigs.push(relative);
-      if (
-        (entry.name.endsWith(".ts") || entry.name.endsWith(".mts")) &&
-        !entry.name.endsWith(".d.ts")
+      } else if (
+        entry.isFile() &&
+        (relevant.test(entry.name) ||
+          new Set([
+            "bun.lock",
+            "package-lock.json",
+            "package.json",
+            "pnpm-lock.yaml",
+            "yarn.lock",
+          ]).has(entry.name))
       ) {
-        sourceFiles.push(relative);
+        hash.update(normalizeRelativePath(projectRoot, absolute)).update("\0");
+        hash.update(fs.readFileSync(absolute)).update("\0");
       }
     }
   };
-
   visit(projectRoot);
-  return { sourceFiles: sourceFiles.sort(), tsconfigs: tsconfigs.sort() };
-}
-
-function defaultWebRoot(): string {
-  return fileURLToPath(new URL("../../../apps/studio/dist/", import.meta.url));
+  return hash.digest("hex");
 }
 
 export async function createStudioServer(options: StudioServerOptions): Promise<StudioServer> {
@@ -90,6 +160,29 @@ export async function createStudioServer(options: StudioServerOptions): Promise<
   const initialTsconfig = optionalRelativePath(projectRoot, options.tsconfigPath);
   const initialEntrypoint = optionalRelativePath(projectRoot, options.entrypoint);
   const app = Fastify({ logger: false });
+  const plans = new Map<string, ExtractionPlan>();
+  const jobs = new Map<string, StudioJob>();
+  const exportedDestinations = new Set<string>();
+  let compilerAdapter = new TypeScriptCompilerAdapter();
+  let compilerFingerprint = "";
+  const analysisCache = new Map<string, AnalysisResult>();
+
+  const analyze = async (tsconfigPath: string, entrypoint: string) => {
+    const fingerprint = projectFingerprint(projectRoot);
+    if (fingerprint !== compilerFingerprint) {
+      compilerFingerprint = fingerprint;
+      compilerAdapter = new TypeScriptCompilerAdapter();
+      analysisCache.clear();
+    }
+    const cacheKey = `${tsconfigPath}\0${entrypoint}`;
+    const cached = analysisCache.get(cacheKey);
+    if (cached) return cached;
+    const result = await analyzeProject({ projectRoot, tsconfigPath, entrypoint }, undefined, {
+      compilerAdapter,
+    });
+    analysisCache.set(cacheKey, result);
+    return result;
+  };
 
   app.addHook("onRequest", async (request, reply) => {
     if (!request.url.startsWith("/api/")) return;
@@ -104,18 +197,23 @@ export async function createStudioServer(options: StudioServerOptions): Promise<
   });
 
   app.get("/api/session", async () => {
-    const discovered = discoverFiles(projectRoot);
+    const discovered = discoverProject({
+      projectRoot,
+      ...(initialEntrypoint ? { entrypoint: initialEntrypoint } : {}),
+    });
     return {
       projectName: path.basename(projectRoot),
       projectRoot,
       tsconfigs: discovered.tsconfigs,
       sourceFiles: discovered.sourceFiles,
-      initialTsconfig: initialTsconfig ?? discovered.tsconfigs[0] ?? null,
-      initialEntrypoint: initialEntrypoint ?? null,
+      initialTsconfig: initialTsconfig ?? discovered.selectedTsconfig,
+      initialEntrypoint: initialEntrypoint ?? discovered.entrypoint,
+      ambiguousTsconfig: discovered.ambiguous,
       capabilities: {
-        profile: "node-esm",
+        profiles: ["node-esm", "react-library"],
         sourcePreview: true,
-        extraction: false,
+        extraction: true,
+        verification: true,
       },
     };
   });
@@ -130,7 +228,7 @@ export async function createStudioServer(options: StudioServerOptions): Promise<
       try {
         safeExistingPath(projectRoot, tsconfigPath);
         safeExistingPath(projectRoot, entrypoint);
-        return await analyzeProject({ projectRoot, tsconfigPath, entrypoint });
+        return await analyze(tsconfigPath, entrypoint);
       } catch (error) {
         if (error instanceof AnalysisError) {
           return reply.code(400).send({ error: error.message, code: error.code });
@@ -140,6 +238,152 @@ export async function createStudioServer(options: StudioServerOptions): Promise<
     },
   );
 
+  app.post<{
+    Body: {
+      tsconfigPath?: string;
+      entrypoint?: string;
+      packageName?: string;
+      destination?: string;
+      acceptedWarningIds?: string[];
+      copyLicense?: boolean;
+      dependencyOverrides?: Record<string, DependencyClassification>;
+    };
+  }>("/api/plan", async (request, reply) => {
+    const body = request.body ?? {};
+    if (!body.tsconfigPath || !body.entrypoint || !body.packageName || !body.destination) {
+      return reply.code(400).send({
+        error: "tsconfigPath, entrypoint, packageName, and destination are required.",
+      });
+    }
+    try {
+      safeExistingPath(projectRoot, body.tsconfigPath);
+      safeExistingPath(projectRoot, body.entrypoint);
+      const plan = await createExtractionPlan({
+        projectRoot,
+        tsconfigPath: body.tsconfigPath,
+        entrypoint: body.entrypoint,
+        packageName: body.packageName,
+        destination: body.destination,
+        ...(body.acceptedWarningIds ? { acceptedWarningIds: body.acceptedWarningIds } : {}),
+        ...(body.copyLicense !== undefined ? { copyLicense: body.copyLicense } : {}),
+        ...(body.dependencyOverrides ? { dependencyOverrides: body.dependencyOverrides } : {}),
+      });
+      plans.set(plan.digest, plan);
+      return { planId: plan.digest, plan };
+    } catch (error) {
+      if (error instanceof AnalysisError) {
+        return reply.code(400).send({ error: error.message, code: error.code });
+      }
+      throw error;
+    }
+  });
+
+  app.post<{ Body: { planId?: string; confirmation?: string } }>(
+    "/api/export",
+    async (request, reply) => {
+      const { planId, confirmation } = request.body ?? {};
+      const plan = planId ? plans.get(planId) : undefined;
+      if (!plan)
+        return reply.code(404).send({ error: "The extraction plan is unknown or expired." });
+      if (confirmation !== plan.target.packageName) {
+        return reply.code(400).send({ error: "Type the package name exactly to confirm export." });
+      }
+      const controller = new AbortController();
+      const job: StudioJob = {
+        id: randomUUID(),
+        type: "export",
+        status: "running",
+        message: "Creating the package in a staging directory…",
+        createdAt: new Date().toISOString(),
+        planDigest: plan.digest,
+        destination: plan.target.destination,
+        controller,
+      };
+      jobs.set(job.id, job);
+      void exportPackage(plan, {}, controller.signal)
+        .then((result) => {
+          job.result = result;
+          job.status = "completed";
+          job.message = "Package exported successfully.";
+          exportedDestinations.add(path.resolve(result.destination));
+        })
+        .catch((error: unknown) => {
+          job.status = controller.signal.aborted ? "cancelled" : "failed";
+          job.message = controller.signal.aborted ? "Export cancelled." : "Export failed.";
+          job.error = errorMessage(error);
+        });
+      return reply.code(202).send({ jobId: job.id, job: publicJob(job) });
+    },
+  );
+
+  app.post<{
+    Body: { packageRoot?: string; install?: boolean; allowInstallScripts?: boolean };
+  }>("/api/verify", async (request, reply) => {
+    const body = request.body ?? {};
+    if (!body.packageRoot) return reply.code(400).send({ error: "packageRoot is required." });
+    const packageRoot = fs.existsSync(body.packageRoot)
+      ? fs.realpathSync.native(body.packageRoot)
+      : path.resolve(body.packageRoot);
+    if (!exportedDestinations.has(packageRoot)) {
+      return reply
+        .code(403)
+        .send({ error: "Studio can verify only a package exported in this session." });
+    }
+    const controller = new AbortController();
+    const job: StudioJob = {
+      id: randomUUID(),
+      type: "verify",
+      status: "running",
+      message: body.install
+        ? "Installing dependencies in an isolated copy…"
+        : "Running safe structural checks…",
+      createdAt: new Date().toISOString(),
+      destination: packageRoot,
+      controller,
+    };
+    jobs.set(job.id, job);
+    void verifyPackage(
+      {
+        packageRoot,
+        ...(body.install !== undefined ? { install: body.install } : {}),
+        ...(body.allowInstallScripts !== undefined
+          ? { allowInstallScripts: body.allowInstallScripts }
+          : {}),
+      },
+      controller.signal,
+    )
+      .then((result) => {
+        job.result = result;
+        job.status = result.status === "cancelled" ? "cancelled" : "completed";
+        job.message = `Verification finished with status: ${result.status}.`;
+      })
+      .catch((error: unknown) => {
+        job.status = controller.signal.aborted ? "cancelled" : "failed";
+        job.message = controller.signal.aborted
+          ? "Verification cancelled."
+          : "Verification failed.";
+        job.error = errorMessage(error);
+      });
+    return reply.code(202).send({ jobId: job.id, job: publicJob(job) });
+  });
+
+  app.get<{ Params: { id: string } }>("/api/jobs/:id", async (request, reply) => {
+    const job = jobs.get(request.params.id);
+    if (!job) return reply.code(404).send({ error: "Job not found." });
+    return publicJob(job);
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/jobs/:id", async (request, reply) => {
+    const job = jobs.get(request.params.id);
+    if (!job) return reply.code(404).send({ error: "Job not found." });
+    if (job.status === "running") {
+      job.controller.abort();
+      job.status = "cancelled";
+      job.message = "Cancellation requested.";
+    }
+    return publicJob(job);
+  });
+
   app.get<{ Querystring: { path?: string } }>("/api/source", async (request, reply) => {
     const requestedPath = request.query.path;
     if (!requestedPath) return reply.code(400).send({ error: "path is required." });
@@ -147,8 +391,12 @@ export async function createStudioServer(options: StudioServerOptions): Promise<
       const absolute = safeExistingPath(projectRoot, requestedPath);
       const stat = fs.statSync(absolute);
       if (!stat.isFile()) return reply.code(400).send({ error: "Source path is not a file." });
-      if (stat.size > 1_000_000)
+      if (stat.size > 1_000_000) {
         return reply.code(413).send({ error: "Source file is too large to preview." });
+      }
+      if (!/\.(?:css|json|md|mts|svg|ts|tsx)$/u.test(absolute)) {
+        return reply.code(415).send({ error: "Binary assets cannot be previewed as source." });
+      }
       return {
         path: normalizeRelativePath(projectRoot, absolute),
         content: fs.readFileSync(absolute, "utf8"),
@@ -165,10 +413,17 @@ export async function createStudioServer(options: StudioServerOptions): Promise<
 
   const webRoot = options.webRoot ?? defaultWebRoot();
   if (fs.existsSync(webRoot)) {
-    await app.register(fastifyStatic, { root: webRoot, wildcard: false });
     app.setNotFoundHandler((request, reply) => {
       if (request.url.startsWith("/api/")) return reply.code(404).send({ error: "Not found." });
-      return reply.sendFile("index.html");
+      const pathname = decodeURIComponent(new URL(request.url, "http://127.0.0.1").pathname);
+      const requested = path.resolve(webRoot, pathname.replace(/^\/+/, ""));
+      const candidate =
+        isInsideRoot(webRoot, requested) &&
+        fs.existsSync(requested) &&
+        fs.statSync(requested).isFile()
+          ? requested
+          : path.join(webRoot, "index.html");
+      return reply.type(contentType(candidate)).send(fs.createReadStream(candidate));
     });
   } else {
     app.get("/", async () => ({

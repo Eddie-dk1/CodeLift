@@ -14,6 +14,7 @@ import {
   CircleAlert,
   CircleHelp,
   FileCode2,
+  FileImage,
   FolderOpen,
   Play,
   RefreshCw,
@@ -24,6 +25,7 @@ import {
 import styles from "./App.module.css";
 import { DependencyNode } from "./components/DependencyNode.js";
 import { StatusBar } from "./components/StatusBar.js";
+import { WorkflowPanel } from "./components/WorkflowPanel.js";
 import { getSession, getSource, runAnalysis, type StudioSession } from "./lib/api.js";
 import { layoutGraph } from "./lib/graph-layout.js";
 
@@ -38,6 +40,8 @@ export function App() {
   const [tsconfigPath, setTsconfigPath] = useState("");
   const [entrypoint, setEntrypoint] = useState("");
   const [entryFilter, setEntryFilter] = useState("");
+  const [edgeFilter, setEdgeFilter] = useState("all");
+  const [blockingOnly, setBlockingOnly] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -85,7 +89,41 @@ export function App() {
     };
   }, [analyze]);
 
-  const graph = useMemo(() => (result ? layoutGraph(result) : { nodes: [], edges: [] }), [result]);
+  const graph = useMemo(() => {
+    if (!result) return { nodes: [], edges: [] };
+    let edges = result.edges.filter((edge) => {
+      if (edgeFilter === "types") return edge.kind === "type-only";
+      if (edgeFilter === "assets") {
+        return new Set(["asset-import", "style-import", "asset-reference"]).has(edge.kind);
+      }
+      if (edgeFilter === "runtime") {
+        return !new Set(["type-only", "asset-import", "style-import", "asset-reference"]).has(
+          edge.kind,
+        );
+      }
+      return true;
+    });
+    let nodes = result.nodes;
+    if (nodes.length > 120) {
+      const visible = new Set<string>();
+      const entryNode = nodes.find((node) => node.path === result.entrypoint);
+      if (entryNode) visible.add(entryNode.id);
+      if (selectedNodeId) visible.add(selectedNodeId);
+      const selectedPath = result.reasons.find((reason) => reason.nodeId === selectedNodeId);
+      for (const nodeId of selectedPath?.nodePath ?? []) visible.add(nodeId);
+      for (let depth = 0; depth < 2; depth += 1) {
+        for (const edge of edges) {
+          if (visible.has(edge.source) || visible.has(edge.target)) {
+            visible.add(edge.source);
+            visible.add(edge.target);
+          }
+        }
+      }
+      nodes = nodes.filter((node) => visible.has(node.id));
+      edges = edges.filter((edge) => visible.has(edge.source) && visible.has(edge.target));
+    }
+    return layoutGraph({ ...result, nodes, edges });
+  }, [edgeFilter, result, selectedNodeId]);
   const selectedNode = result?.nodes.find((node) => node.id === selectedNodeId);
   const selectedReason = result?.reasons.find((reason) => reason.nodeId === selectedNodeId);
   const reasonNodes =
@@ -96,7 +134,9 @@ export function App() {
   const primaryEdge = result?.edges.find((edge) => edge.id === primaryEdgeId);
   const selectedIssues =
     result?.issues.filter(
-      (issue) => issue.nodeId === selectedNodeId || issue.location?.path === selectedNode?.path,
+      (issue) =>
+        (!blockingOnly || issue.blocking) &&
+        (issue.nodeId === selectedNodeId || issue.location?.path === selectedNode?.path),
     ) ?? [];
   const filteredEntries =
     session?.sourceFiles.filter((file) => file.toLowerCase().includes(entryFilter.toLowerCase())) ??
@@ -152,6 +192,9 @@ export function App() {
             value={tsconfigPath}
             onChange={(event) => setTsconfigPath(event.target.value)}
           >
+            {!tsconfigPath ? (
+              <option value="">Select the config that owns this entrypoint…</option>
+            ) : null}
             {session?.tsconfigs.map((config) => (
               <option key={config} value={config}>
                 {config}
@@ -233,6 +276,52 @@ export function App() {
           </div>
         </section>
 
+        {result && result.stats.localAssets > 0 ? (
+          <section className={styles.listSection}>
+            <div className={styles.sectionHeading}>
+              <span>Styles & assets</span>
+              <span>{result.stats.localAssets}</span>
+            </div>
+            <div className={styles.fileList}>
+              {result.nodes
+                .filter((node) => node.kind === "local-asset")
+                .map((node) => (
+                  <button
+                    type="button"
+                    key={node.id}
+                    className={`${styles.fileRow} ${selectedNodeId === node.id ? styles.activeRow : ""}`}
+                    onClick={() => {
+                      setSelectedNodeId(node.id);
+                      setSourcePreview(null);
+                    }}
+                  >
+                    <FileImage size={14} />
+                    <span>{node.path}</span>
+                  </button>
+                ))}
+            </div>
+          </section>
+        ) : null}
+
+        {result && result.cycles.length > 0 ? (
+          <section className={styles.listSection}>
+            <div className={styles.sectionHeading}>
+              <span>Dependency cycles</span>
+              <span>{result.cycles.length}</span>
+            </div>
+            <div className={styles.cycleList}>
+              {result.cycles.map((cycle) => (
+                <div key={cycle.id}>
+                  {cycle.nodeIds
+                    .map((nodeId) => result.nodes.find((node) => node.id === nodeId)?.label)
+                    .filter(Boolean)
+                    .join(" → ")}
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
         <section className={styles.listSection}>
           <div className={styles.sectionHeading}>
             <span>External dependencies</span>
@@ -253,6 +342,22 @@ export function App() {
       <section className={styles.canvas} aria-label="Dependency graph">
         <div className={styles.canvasHeader}>
           <strong>Dependency graph</strong>
+          {result && result.nodes.length > 120 ? (
+            <small>
+              Focused subgraph · {graph.nodes.length}/{result.nodes.length} nodes
+            </small>
+          ) : null}
+          <select
+            className={styles.graphFilter}
+            aria-label="Graph edge filter"
+            value={edgeFilter}
+            onChange={(event) => setEdgeFilter(event.target.value)}
+          >
+            <option value="all">All edges</option>
+            <option value="runtime">Runtime</option>
+            <option value="types">Type-only</option>
+            <option value="assets">Styles & assets</option>
+          </select>
           <div className={styles.legend}>
             <span>
               <i className={styles.runtimeLine} />
@@ -261,6 +366,10 @@ export function App() {
             <span>
               <i className={styles.typeLine} />
               Type-only
+            </span>
+            <span>
+              <i className={styles.assetLine} />
+              Asset
             </span>
             <span>
               <i className={styles.errorLine} />
@@ -303,6 +412,8 @@ export function App() {
           <div className={styles.fileGlyph}>
             {selectedNode?.kind === "external-package" ? (
               <Box size={20} />
+            ) : selectedNode?.kind === "local-asset" ? (
+              <FileImage size={20} />
             ) : (
               <FileCode2 size={20} />
             )}
@@ -313,7 +424,7 @@ export function App() {
           </div>
         </div>
 
-        {selectedNode?.path ? (
+        {selectedNode?.path && /\.(?:css|json|md|mts|svg|ts|tsx)$/u.test(selectedNode.path) ? (
           <button
             className={styles.secondaryButton}
             type="button"
@@ -359,6 +470,14 @@ export function App() {
             <CircleAlert size={16} /> Issues
             <span className={styles.sectionCount}>{selectedIssues.length}</span>
           </h3>
+          <label className={styles.issueFilter}>
+            <input
+              type="checkbox"
+              checked={blockingOnly}
+              onChange={(event) => setBlockingOnly(event.target.checked)}
+            />
+            Blocking only
+          </label>
           {selectedIssues.length > 0 ? (
             <div className={styles.issueList}>
               {selectedIssues.map((issue) => (
@@ -389,6 +508,15 @@ export function App() {
             <code>{sourcePreview.path}</code>
             <pre>{sourcePreview.content}</pre>
           </section>
+        ) : null}
+
+        {result ? (
+          <WorkflowPanel
+            key={`${result.entrypoint}:${result.stats.durationMs}`}
+            analysis={result}
+            tsconfigPath={tsconfigPath}
+            entrypoint={entrypoint}
+          />
         ) : null}
       </aside>
 

@@ -1,5 +1,5 @@
 import { Handle, type NodeProps, Position } from "@xyflow/react";
-import { Box, CircleAlert, FileCode2, Hexagon, Play } from "lucide-react";
+import { Box, CircleAlert, FileCode2, FileImage, Hexagon, Play } from "lucide-react";
 import type { DependencyNodeData } from "../lib/graph-layout.js";
 import styles from "./DependencyNode.module.css";
 
@@ -10,11 +10,13 @@ export function DependencyNode({ data, selected }: NodeProps) {
       ? Box
       : dependency.kind === "node-builtin"
         ? Hexagon
-        : dependency.kind === "unresolved"
-          ? CircleAlert
-          : isEntrypoint
-            ? Play
-            : FileCode2;
+        : dependency.kind === "local-asset"
+          ? FileImage
+          : dependency.kind === "unresolved"
+            ? CircleAlert
+            : isEntrypoint
+              ? Play
+              : FileCode2;
 
   return (
     <div

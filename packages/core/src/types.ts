@@ -1,6 +1,20 @@
-export type GraphNodeKind = "local-file" | "external-package" | "node-builtin" | "unresolved";
+export type AnalysisProfile = "node-esm" | "react-library";
 
-export type GraphEdgeKind = "static-import" | "re-export" | "type-only" | "literal-dynamic-import";
+export type GraphNodeKind =
+  | "local-file"
+  | "local-asset"
+  | "external-package"
+  | "node-builtin"
+  | "unresolved";
+
+export type GraphEdgeKind =
+  | "static-import"
+  | "re-export"
+  | "type-only"
+  | "literal-dynamic-import"
+  | "asset-import"
+  | "style-import"
+  | "asset-reference";
 
 export type IssueSeverity = "warning" | "error";
 
@@ -68,6 +82,7 @@ export interface InclusionReason {
 
 export interface AnalysisStats {
   localFiles: number;
+  localAssets: number;
   externalPackages: number;
   nodeBuiltins: number;
   unresolvedImports: number;
@@ -76,12 +91,12 @@ export interface AnalysisStats {
 }
 
 export interface AnalysisResult {
-  schemaVersion: 1;
+  schemaVersion: 2;
   project: {
     root: string;
     tsconfig: string;
     typescriptVersion: string;
-    profile: "node-esm";
+    profile: AnalysisProfile;
     profileStatus: "supported" | "unsupported";
   };
   entrypoint: string;

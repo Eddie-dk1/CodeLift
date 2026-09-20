@@ -22,17 +22,10 @@ function capture() {
 }
 
 describe("CodeLift CLI", () => {
-  it("prints the supported fixture and exits successfully", async () => {
+  it("discovers the compiler config, prints the fixture, and exits successfully", async () => {
     const stream = capture();
     const code = await runCli(
-      [
-        "inspect",
-        "src/index.ts",
-        "--project",
-        path.join(workspaceRoot, "fixtures/node-esm-basic"),
-        "--tsconfig",
-        "tsconfig.json",
-      ],
+      ["inspect", "src/index.ts", "--project", path.join(workspaceRoot, "fixtures/node-esm-basic")],
       stream.io,
     );
 
@@ -63,7 +56,7 @@ describe("CodeLift CLI", () => {
       schemaVersion: number;
       issues: unknown[];
     };
-    expect(result.schemaVersion).toBe(1);
+    expect(result.schemaVersion).toBe(2);
     expect(result.issues.length).toBeGreaterThan(0);
   });
 
@@ -75,6 +68,6 @@ describe("CodeLift CLI", () => {
     );
 
     expect(code).toBe(2);
-    expect(stream.output().stderr).toContain("PROJECT_PATH_NOT_FOUND");
+    expect(stream.output().stderr).toContain("ENTRYPOINT_INVALID");
   });
 });

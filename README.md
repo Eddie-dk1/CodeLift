@@ -4,400 +4,348 @@
 </h1>
 
 <p align="center">
-  <strong>Understand what a TypeScript module carries before you extract it.</strong>
+  <strong>Understand, extract, and verify a TypeScript or React module.</strong>
 </p>
 
 <p align="center">
-  CodeLift builds an explainable dependency graph from one TypeScript entrypoint,<br />
-  entirely on your machine and without changing or executing the source project.
+  CodeLift traces everything reachable from one entrypoint, lets you review an immutable
+  extraction plan, creates a standalone source package, and verifies it without changing the
+  original project.
 </p>
 
 <p align="center">
-  <img alt="Project status: local alpha" src="https://img.shields.io/badge/status-local%20alpha-44d5e7?style=flat-square&labelColor=0b1117" />
+  <img alt="Project status: alpha" src="https://img.shields.io/badge/status-alpha-44d5e7?style=flat-square&labelColor=0b1117" />
   <img alt="Node.js 24 or newer" src="https://img.shields.io/badge/node-%3E%3D24-78b85a?style=flat-square&labelColor=0b1117" />
-  <img alt="pnpm 12.4" src="https://img.shields.io/badge/pnpm-12.4-f9ad00?style=flat-square&labelColor=0b1117" />
   <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-e8f0f4?style=flat-square&labelColor=0b1117" />
 </p>
 
 > [!IMPORTANT]
-> CodeLift is currently an analysis-only alpha. It shows the dependency boundary and portability
-> risks of a module, but it does not yet generate a package, rewrite imports, or run verification.
-> The packages in this repository are not published to npm yet.
+> CodeLift is pre-release software. The `codelift-cli` package is prepared for npm but has not been
+> published from this repository yet. Until it is published, use the source-checkout commands below.
 
-## Contents
+## What CodeLift does
 
-- [Why CodeLift?](#why-codelift)
-- [What works today](#what-works-today)
-- [Requirements](#requirements)
-- [Quick start](#quick-start)
-- [CLI reference](#cli-reference)
-- [How analysis works](#how-analysis-works)
-- [Programmatic API](#programmatic-api)
-- [Diagnostics](#diagnostics)
-- [Privacy and security](#privacy-and-security)
-- [Architecture](#architecture)
-- [Development](#development)
-- [Roadmap](#roadmap)
-- [Contributing](#contributing)
+Starting with one `.ts`, `.mts`, or `.tsx` entrypoint, CodeLift:
 
-## Why CodeLift?
+- builds an explainable dependency graph with exact import locations;
+- follows relative imports, TypeScript path aliases, re-exports, type-only imports, and literal
+  dynamic imports;
+- understands Node built-ins, npm subpaths, TSX, CSS/CSS Modules, JSON, SVG, images, and fonts;
+- detects cycles, unresolved imports, environment reads, global state, and portability risks;
+- creates a deterministic, digest-protected extraction plan;
+- copies sources into a new package and rewrites only module specifiers;
+- generates package metadata and TypeScript or Vite library build configuration;
+- verifies structure without installing anything, or builds in an isolated copy after approval.
 
-Moving a useful module into its own package often looks simple until transitive imports, aliases,
-cycles, environment reads, or hidden filesystem assumptions appear. CodeLift makes that boundary
-visible before any files are moved.
+The source project is always read-only. Export is allowed only to a new directory outside the
+source project.
 
-Starting from a single entrypoint, CodeLift answers:
+## Fastest start
 
-- Which local files would need to move with it?
-- Which npm packages and Node.js built-ins does it depend on?
-- Why was a particular file included?
-- Are there dependency cycles?
-- Which exact import statement created each edge?
-- Which dependencies or runtime assumptions make extraction unsafe?
-
-The same analysis engine powers both the CLI and the browser-based Studio, so both surfaces return
-the same versioned `AnalysisResult`.
-
-## What works today
-
-| Capability | Status |
-| --- | --- |
-| One `.ts` or `.mts` entrypoint | Supported |
-| Node.js ESM with `NodeNext` | Supported |
-| Relative imports and TypeScript `paths` aliases | Supported |
-| Re-exports and type-only imports | Supported |
-| Literal `import("...")` | Supported |
-| Node.js built-ins and npm package subpaths | Supported |
-| Dependency cycles and shortest inclusion paths | Supported |
-| Import source text with line and column evidence | Supported |
-| `process.env`, relative file reads, and `globalThis` heuristics | Supported |
-| CommonJS, `require()`, TSX, and assets | Diagnosed, not followed |
-| Package generation and import rewriting | Planned |
-| Isolated verification of an extracted package | Planned |
-
-CodeLift deliberately reports unsupported behavior instead of guessing. The current profile covers
-one project root, one `tsconfig`, and one entrypoint. Multi-entry packages, monorepo/workspace
-boundaries, React/TSX, CSS and other assets, and complete ambient dependency tracing are outside the
-first increment.
-
-## Requirements
-
-- **Node.js 24 or newer.** Node.js 24 LTS is the recommended and CI-tested runtime. Newer versions
-  are accepted with a warning.
-- **pnpm 12.4.x.** The exact workspace package-manager version is recorded in `package.json`.
-- A project using `module: "NodeNext"` and `moduleResolution: "NodeNext"` in its selected
-  `tsconfig`.
-
-The included `.nvmrc` selects the recommended Node.js release when using `nvm`. On newer Node.js
-versions, installation prints a support notice and continues.
-
-## Quick start
-
-CodeLift currently runs from a source checkout:
+After the npm package is published, open a terminal in the project you want to inspect:
 
 ```bash
-cd CodeLift
+cd /path/to/your-project
+npx codelift-cli
+```
 
-# Optional when nvm is installed; selects Node.js 24 LTS.
-nvm use
+That command starts the local Studio, selects the current directory as the project root, chooses a
+single unambiguous `tsconfig`, and opens the browser. Nothing is installed globally.
 
+Useful short forms:
+
+```bash
+npx codelift-cli ./another-project       # Studio for another project
+npx codelift-cli src/index.ts            # Studio with this entrypoint selected
+npx codelift-cli inspect src/index.ts    # report in the terminal
+```
+
+If several TypeScript configurations can own the entrypoint, CodeLift does not guess. Studio asks
+you to select one; terminal commands print the candidates and exit with code `2`.
+
+## Run this repository today
+
+Requirements:
+
+- Node.js `>=24`; Node 24 LTS is the CI baseline, newer releases are accepted;
+- pnpm 12.4 for workspace development only.
+
+If `pnpm` is not installed, use npm to invoke the pinned pnpm version:
+
+```bash
+cd /path/to/CodeLift
+npx pnpm@12.4.0 install
+npx pnpm@12.4.0 demo
+```
+
+Once pnpm is installed, the same workflow is shorter:
+
+```bash
 pnpm install
+pnpm demo
+```
+
+`pnpm demo` builds CodeLift and opens Studio on the included Node fixture. To open Studio for the
+current directory, run:
+
+```bash
+pnpm start
+```
+
+To use this checkout against another project without changing directories:
+
+```bash
 pnpm build
+node packages/cli/dist/bin.js /absolute/path/to/project
 ```
 
-Analyze the included demonstration fixture:
+## CLI workflow
+
+### Analyze
 
 ```bash
-pnpm codelift inspect src/index.ts \
-  --project fixtures/node-esm-basic \
-  --tsconfig tsconfig.json
+codelift inspect src/index.ts
+codelift inspect src/index.ts --format json
 ```
 
-Start Studio for the same fixture:
+Project root defaults to the current directory and `tsconfig` is discovered automatically. Advanced
+overrides remain available:
 
 ```bash
-pnpm codelift studio \
-  --project fixtures/node-esm-basic \
-  --tsconfig tsconfig.json \
-  --entry src/index.ts
-```
-
-The CLI opens Studio in the default browser. The server chooses an available local port and prints
-the full session URL. Press <kbd>Ctrl</kbd> + <kbd>C</kbd> to stop it.
-
-## CLI reference
-
-### Inspect an entrypoint
-
-```text
-codelift inspect <entry> --project <root> --tsconfig <path> [--format pretty|json]
-```
-
-When running from this repository, prefix the command with `pnpm`:
-
-```bash
-pnpm codelift inspect src/public-api.ts \
-  --project /absolute/path/to/project \
-  --tsconfig tsconfig.json
-```
-
-Arguments and options:
-
-| Argument or option | Meaning |
-| --- | --- |
-| `<entry>` | Entrypoint path relative to the project root |
-| `--project <root>` | Root directory CodeLift is allowed to inspect |
-| `--tsconfig <path>` | TypeScript configuration, normally relative to the project root |
-| `--format pretty` | Human-readable report; this is the default |
-| `--format json` | Complete, versioned `AnalysisResult` for scripts and integrations |
-
-Example JSON export:
-
-```bash
-pnpm codelift inspect src/index.ts \
+codelift inspect src/index.ts \
   --project /path/to/project \
-  --tsconfig tsconfig.json \
-  --format json > codelift-analysis.json
+  --tsconfig tsconfig.library.json \
+  --format pretty
 ```
 
-Exit codes are stable and suitable for CI:
+Exit codes:
 
 | Code | Meaning |
 | ---: | --- |
-| `0` | Analysis completed without blocking issues |
-| `1` | Analysis completed and found at least one blocking issue |
-| `2` | Invalid arguments, configuration error, or runtime failure |
+| `0` | Operation completed without blocking issues |
+| `1` | Analysis or plan completed with blocking issues, or verification failed |
+| `2` | Invalid arguments, ambiguous configuration, or execution error |
 
-Warnings such as environment reads do not change the exit code to `1`; only issues marked as
-blocking do.
+### Create a plan
 
-### Start Studio
+The destination is intentionally required and is never invented by CodeLift:
+
+```bash
+codelift plan src/index.ts \
+  --name invoice-kit \
+  --out ../invoice-kit \
+  --save codelift.plan.json
+```
+
+The versioned plan records:
+
+- the selected profile, entrypoint, configuration, and source snapshot digest;
+- SHA-256 digests of included source files and assets;
+- source-to-destination mappings and planned import rewrites;
+- dependency classification and exact source ranges;
+- blocking issues, warnings, and accepted warnings;
+- the complete expected output-file manifest.
+
+Warnings require explicit acceptance with `--accept-warnings`. Blocking issues cannot be bypassed.
+Any input change makes the plan stale and prevents export.
+
+### Export
+
+```bash
+codelift extract --plan codelift.plan.json
+```
+
+Export requires a non-existing destination outside the source project. CodeLift writes into a
+temporary sibling directory, validates the complete result, and atomically renames it into place.
+If export fails or is cancelled, the staging directory is removed and no final package appears.
+
+Generated packages are private by default and include editable source, build configuration,
+`package.json`, README, and `codelift-report.json`. A source license is copied only when explicitly
+requested through the programmatic plan API.
+
+### Verify
+
+Safe structural checks do not require network access:
+
+```bash
+codelift verify ../invoice-kit
+```
+
+This checks the plan manifest, local import resolution, package exports, public types, unexpected
+files, and absolute references back to the source project. Install/build/smoke checks are reported
+as `not-run`, never silently presented as passed.
+
+To test a real isolated build:
+
+```bash
+codelift verify ../invoice-kit --install
+```
+
+CodeLift shows this choice explicitly in Studio. It copies the package to a temporary directory,
+runs `npm install --ignore-scripts`, and executes only CodeLift-generated build and smoke commands.
+Dependency lifecycle scripts remain disabled unless `--allow-install-scripts` is also supplied.
+
+## Studio workflow
+
+Studio guides the operation through:
 
 ```text
-codelift studio --project <root> [--tsconfig <path>] [--entry <path>]
-                [--port <number>] [--no-open]
+Project → Analyze → Plan → Review → Export → Verify → Report
 ```
 
-| Option | Meaning |
-| --- | --- |
-| `--project <root>` | Required filesystem boundary for the Studio session |
-| `--tsconfig <path>` | Initially selected TypeScript configuration |
-| `--entry <path>` | Initially selected entrypoint |
-| `--port <number>` | Loopback port; defaults to `0`, which selects an available port |
-| `--no-open` | Start the server without opening a browser |
+- The top bar shows the filesystem root and explains what the Compiler config controls.
+- The left panel selects the entrypoint and separates source files, assets, and external packages.
+- The graph distinguishes source, asset, package, built-in, and unresolved nodes.
+- The inspector shows the shortest “why included” path, exact import evidence, diagnostics, and a
+  read-only preview for text sources.
+- The extraction panel requires a package name and an explicit destination, then shows planned files
+  and import rewrites before any write occurs.
+- Export requires typing the package name exactly.
+- Verify reports every check as `passed`, `failed`, `not-run`, `unsupported`, or `cancelled`.
 
-Studio contains four working areas:
+Long export and verification operations are cancellable jobs. Every job is bound to the Studio
+session token, source project, plan digest, and destination.
 
-1. The top bar selects the `tsconfig` and starts an analysis.
-2. The left panel selects an entrypoint and lists included files and external packages.
-3. The center canvas displays the directed graph with pan, zoom, and automatic Dagre layout.
-4. The right panel explains why a node was included, shows exact import evidence and issues, and
-   opens a read-only source preview.
+## Supported profiles
 
-The status bar reports the actual number of files, packages, cycles, and issues in the latest
-analysis.
+| Capability | `node-esm` | `react-library` |
+| --- | :---: | :---: |
+| `.ts` / `.mts` | ✓ | ✓ |
+| `.tsx` and standard React JSX modes | — | ✓ |
+| CSS and CSS Modules | — | ✓ |
+| JSON and SVG | — | ✓ |
+| PNG, JPEG, WebP, GIF, AVIF, ICO | — | ✓ |
+| WOFF/WOFF2, TTF, OTF | — | ✓ |
+| TypeScript `paths` aliases | ✓ | ✓ |
+| Node built-ins | ✓ | Diagnosed when present |
+| Package build | TypeScript | Vite library mode + declarations |
 
-## How analysis works
+React and React DOM are classified as both peer dependencies and development dependencies. Other
+runtime imports become dependencies. Ranges come from the source manifest; CodeLift never replaces
+them with `latest`.
 
-```mermaid
-flowchart LR
-    Entry[TypeScript entrypoint] --> Adapter[CompilerAdapter]
-    Adapter --> Resolve[TypeScript module resolution]
-    Resolve --> Graph[Dependency graph]
-    Graph --> Cycles[SCC cycle detection]
-    Graph --> Reasons[Shortest inclusion paths]
-    Graph --> Issues[Portability diagnostics]
-    Cycles --> Result[AnalysisResult v1]
-    Reasons --> Result
-    Issues --> Result
-    Result --> CLI[CLI report / JSON]
-    Result --> Studio[Local Studio]
-```
-
-Local source files are traversed transitively. External npm packages and Node.js built-ins become
-leaf nodes and are not inspected. Collections and IDs are deterministic, while source paths in the
-result are normalized relative to the project root.
-
-### Graph vocabulary
-
-Node kinds:
-
-- `local-file` — a source file included in the transitive dependency set;
-- `external-package` — an npm package root, including scoped packages and subpath imports;
-- `node-builtin` — a Node.js standard-library module;
-- `unresolved` — an import CodeLift could not safely resolve or include.
-
-Edge kinds:
-
-- `static-import`;
-- `re-export`;
-- `type-only`;
-- `literal-dynamic-import`.
-
-Every edge records its module specifier, original source text, and one-based source location. Every
-reachable node receives a shortest `reasons` path from the entrypoint.
+Not yet supported: CommonJS, Sass/Less, React Native, custom bundler loaders/plugins, multiple
+entrypoints, project references, workspace package transfer, and automatic test migration.
 
 ## Programmatic API
 
-The core API is available to workspace packages and will become the basis of the future published
-package:
+The deterministic core API keeps project discovery out of `analyzeProject` itself:
 
 ```ts
-import { analyzeProject } from "@codelift/core";
+import {
+  analyzeProject,
+  createExtractionPlan,
+  exportPackage,
+  verifyPackage,
+} from "@codelift/core";
 
-const controller = new AbortController();
+const analysis = await analyzeProject({
+  projectRoot: "/absolute/project",
+  tsconfigPath: "tsconfig.json",
+  entrypoint: "src/index.ts",
+});
 
-const result = await analyzeProject(
-  {
-    projectRoot: "/absolute/path/to/project",
-    tsconfigPath: "tsconfig.json",
-    entrypoint: "src/index.ts",
-  },
-  controller.signal,
-);
+const plan = await createExtractionPlan({
+  projectRoot: analysis.project.root,
+  tsconfigPath: analysis.project.tsconfig,
+  entrypoint: analysis.entrypoint,
+  packageName: "invoice-kit",
+  destination: "/absolute/output/invoice-kit",
+});
 
-console.log(result.nodes);
-console.log(result.cycles);
-console.log(result.reasons);
+if (plan.status === "ready") {
+  const exported = await exportPackage(plan);
+  const verification = await verifyPackage({ packageRoot: exported.destination });
+  console.log(verification.status);
+}
 ```
 
-The public contract is:
+Public schemas are independently versioned:
 
-```ts
-analyzeProject(request: AnalysisRequest, signal?: AbortSignal): Promise<AnalysisResult>
-```
+- `AnalysisResult` schema `2`;
+- `ExtractionPlan` schema `1`;
+- `ExportResult` schema `1`;
+- `VerificationResult` schema `1`.
 
-`AnalysisResult` includes a schema version, project metadata, nodes, edges, issues, strongly
-connected cycles, external packages, inclusion reasons, and summary statistics. See
-[`packages/core/src/types.ts`](packages/core/src/types.ts) for the complete type definitions.
+All long-running APIs accept an optional `AbortSignal`.
 
-## Diagnostics
+## Security model
 
-Blocking diagnostics mean CodeLift cannot describe a safe, complete extraction boundary. Warnings
-identify dependencies that may need explicit configuration or manual migration.
+- Source files are read but never modified or executed.
+- Studio binds to `127.0.0.1` and has no CORS support.
+- Every API call requires a random session token.
+- `realpath` boundary checks reject path traversal and symlink escapes.
+- Plans are digest-protected and source hashes are rechecked before export.
+- Destination cannot exist, overlap the source, be its parent, or resolve to a filesystem/home root.
+- Export uses a temporary sibling and atomic rename.
+- Verification runs in a separate temporary copy with `NODE_PATH` and source-linking variables removed.
+- No telemetry, accounts, cloud upload, or automatic npm publication is included.
 
-| Code | Level | Meaning |
-| --- | --- | --- |
-| `CL001` | Error | The selected TypeScript configuration is not `NodeNext` |
-| `CL002` | Error | A resolved local dependency has an unsupported file type |
-| `CL003` | Error | A local import could not be resolved |
-| `CL004` | Error | An import resolves outside the selected project root |
-| `CL005` | Error | A dynamic import does not use a string literal |
-| `CL006` | Error | CommonJS `require()` or import assignment was found |
-| `CL007` | Warning | Relative filesystem access may depend on the working directory |
-| `CL008` | Warning | The module reads from `process.env` |
-| `CL009` | Warning | The module reads from `globalThis` |
-| `CL010` | Error | An asset import is unsupported |
-| `CL012` | Error | TypeScript could not load a source file |
-
-Configuration and invocation failures use descriptive codes such as `PATH_OUTSIDE_PROJECT`,
-`PROJECT_PATH_NOT_FOUND`, and `ENTRYPOINT_UNSUPPORTED` and produce CLI exit code `2`.
-
-## Privacy and security
-
-CodeLift is local by design:
-
-- analyzed source code is never uploaded;
-- source files are opened read-only and are never rewritten;
-- imported modules and project scripts are never executed;
-- dependencies are never installed on behalf of the analyzed project;
-- Studio binds only to `127.0.0.1` by default;
-- every Studio API request requires a random per-session token;
-- cross-origin API requests are rejected and CORS is not enabled;
-- `realpath` checks prevent path traversal and symlink escapes from the selected project root;
-- source preview is restricted to files inside that root and files larger than 1 MB are rejected.
-
-See [`SECURITY.md`](SECURITY.md) for vulnerability reporting guidance.
+See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
 ## Architecture
 
-CodeLift is a pnpm workspace with a single analysis engine and two delivery surfaces:
-
 ```text
-CLI ─────────────────┐
-                     ├── @codelift/core ── CompilerAdapter ── TypeScript 6 compatibility API
-Local Studio API ────┘
-        │
-        └── React Studio
+codelift-cli
+├── CLI commands
+├── Fastify loopback server
+├── compiled React Studio
+└── @codelift/core
+    ├── project discovery
+    ├── TypeScript compatibility adapter
+    ├── TS/TSX/CSS/resource graph
+    ├── extraction planner
+    ├── safe exporter
+    └── isolated verifier
 ```
 
-| Path | Responsibility |
-| --- | --- |
-| `packages/core` | Project loading, module resolution, scanning, graph algorithms, and result types |
-| `packages/cli` | `inspect` and `studio` commands plus terminal/JSON rendering |
-| `packages/studio-server` | Token-protected, loopback-only Fastify API and static Studio host |
-| `apps/studio` | React 19 interface, React Flow graph, and Dagre layout |
-| `fixtures` | Deterministic projects for golden, CLI, API, and browser tests |
-| `docs` | Architecture notes and project assets |
+The repository is a pnpm workspace:
 
-CodeLift itself is built with TypeScript 7. Project analysis currently uses the TypeScript 6
-compatibility API behind `CompilerAdapter`, keeping the compiler integration replaceable when the
-new Compiler API is available.
+- `packages/core` — analysis, planning, export, and verification APIs;
+- `packages/cli` — the publishable `codelift-cli` package and `codelift` binary;
+- `packages/studio-server` — local Fastify API and job/session boundary;
+- `apps/studio` — React 19, React Flow, Dagre, and CSS Modules;
+- `fixtures` — deterministic Node and React golden projects.
 
-More detail is available in [`docs/architecture.md`](docs/architecture.md). The original product
-scope and design rationale live in [`CodeLift.md`](CodeLift.md).
+CodeLift itself builds with TypeScript 7. Project analysis is isolated behind `CompilerAdapter` and
+uses the TypeScript 6 compatibility package until the new compiler exposes the required stable API.
 
 ## Development
 
-Install dependencies and build all workspace packages before invoking the CLI:
-
 ```bash
 pnpm install
-pnpm build
-```
-
-Useful commands:
-
-| Command | Purpose |
-| --- | --- |
-| `pnpm dev` | Run the Studio API and Vite development server together |
-| `pnpm lint` | Check source, configuration, and documentation formatting with Biome |
-| `pnpm lint:fix` | Apply safe Biome formatting and lint fixes |
-| `pnpm typecheck` | Type-check all workspace packages |
-| `pnpm test` | Run core, CLI, API, and React unit/integration tests |
-| `pnpm test:e2e` | Run the Playwright Studio workflow |
-| `pnpm build` | Build every package and the production Studio bundle |
-| `pnpm ci` | Run lint, typecheck, tests, and build in sequence |
-
-For live Studio development:
-
-```bash
-pnpm dev
-```
-
-Then open <http://127.0.0.1:5173/#token=dev-token>. The development API analyzes
-`fixtures/node-esm-basic` and listens on port `4317`.
-
-GitHub Actions validates the project on Ubuntu, macOS, and Windows with Node.js 24. The browser
-workflow runs separately on Chromium.
-
-## Roadmap
-
-- [x] Versioned dependency analysis for one TypeScript entrypoint
-- [x] Explainable graph, cycle detection, import evidence, and issue reporting
-- [x] CLI and local read-only Studio
-- [ ] Versioned extraction plan
-- [ ] Safe package exporter and import rewriting
-- [ ] Isolated build and test verification
-- [ ] Multiple entrypoints and broader TypeScript project profiles
-
-Graph correctness is intentionally being validated before CodeLift starts writing files.
-
-## Contributing
-
-Issues and focused pull requests are welcome. Before submitting a change, run:
-
-```bash
 pnpm lint
 pnpm typecheck
 pnpm test
 pnpm build
+pnpm test:e2e
 ```
 
-Changes to analysis behavior should include a focused fixture or test and preserve deterministic
-output. Security-sensitive path handling should include both a valid in-root case and an attempted
-escape.
+Convenience commands:
 
-## License
+```bash
+pnpm start   # production Studio for the current directory
+pnpm demo    # production Studio for fixtures/node-esm-basic
+```
 
-CodeLift is released under the [MIT License](LICENSE).
+Validate the publishable package:
+
+```bash
+pnpm build
+cd packages/cli
+npm pack --dry-run
+```
+
+CI runs lint, type checking, unit/integration tests, builds, browser tests, and package smoke tests on
+Node 24 across Ubuntu, macOS, and Windows. See [docs/releasing.md](docs/releasing.md) for the guarded
+npm provenance workflow. The project is licensed under [MIT](LICENSE).
+
+## Release path
+
+- `0.2.0-alpha` — short launch, npm packaging, and React/resource analysis;
+- `0.3.0-alpha` — versioned plans and safe exporter;
+- `0.4.0-beta` — isolated verification and the complete Studio workflow;
+- `1.0.0` — after Node utility, React component, and alias-heavy real-world migrations stabilize the
+  schemas and edge cases.
+
+Feedback is collected through GitHub Issues and voluntarily attached, sanitized reports only.

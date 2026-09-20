@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { builtinModules } from "node:module";
 import path from "node:path";
 import ts from "typescript-compat";
+import { isSupportedAsset, resolveAsset, scanCss } from "./asset-scanner.js";
 import { type CompilerAdapter, TypeScriptCompilerAdapter } from "./compiler-adapter.js";
 import { AnalysisError } from "./errors.js";
 import {
@@ -14,10 +15,12 @@ import { isInsideRoot, normalizeRelativePath, toRealPath } from "./path-utils.js
 import { isSupportedSourceFile, looksLikeAssetSpecifier, scanSourceFile } from "./scanner.js";
 import type {
   AnalysisIssue,
+  AnalysisProfile,
   AnalysisRequest,
   AnalysisResult,
   ExternalPackage,
   GraphEdge,
+  GraphEdgeKind,
   GraphNode,
   SourceLocation,
 } from "./types.js";
@@ -25,6 +28,13 @@ import type {
 interface AnalyzeDependencies {
   compilerAdapter?: CompilerAdapter;
   now?: () => number;
+}
+
+interface DependencyRecord {
+  specifier: string;
+  kind: GraphEdgeKind;
+  sourceText: string;
+  location: SourceLocation;
 }
 
 const builtins = new Set(builtinModules.map((name) => name.replace(/^node:/, "")));
@@ -59,9 +69,7 @@ function loadDeclaredRanges(projectRoot: string): Record<string, string> {
       "devDependencies",
     ]) {
       const entries = manifest[field];
-      if (entries && typeof entries === "object") {
-        Object.assign(result, entries);
-      }
+      if (entries && typeof entries === "object") Object.assign(result, entries);
     }
     return result;
   } catch {
@@ -93,11 +101,49 @@ function edgeId(
   );
 }
 
-function isNodeNextProfile(options: ts.CompilerOptions): boolean {
-  return (
-    options.module === ts.ModuleKind.NodeNext &&
-    options.moduleResolution === ts.ModuleResolutionKind.NodeNext
-  );
+function profileFor(entrypoint: string, options: ts.CompilerOptions): AnalysisProfile {
+  return entrypoint.toLowerCase().endsWith(".tsx") || options.jsx !== undefined
+    ? "react-library"
+    : "node-esm";
+}
+
+function profileProblems(profile: AnalysisProfile, options: ts.CompilerOptions): string[] {
+  if (profile === "node-esm") {
+    return options.module === ts.ModuleKind.NodeNext &&
+      options.moduleResolution === ts.ModuleResolutionKind.NodeNext
+      ? []
+      : ["The node-esm profile requires module and moduleResolution to be NodeNext."];
+  }
+
+  const problems: string[] = [];
+  const validResolution = new Set([
+    ts.ModuleResolutionKind.NodeNext,
+    ts.ModuleResolutionKind.Bundler,
+  ]);
+  const validModule = new Set([
+    ts.ModuleKind.NodeNext,
+    ts.ModuleKind.ESNext,
+    ts.ModuleKind.Preserve,
+  ]);
+  const validJsx = new Set([
+    ts.JsxEmit.React,
+    ts.JsxEmit.ReactJSX,
+    ts.JsxEmit.ReactJSXDev,
+    ts.JsxEmit.Preserve,
+  ]);
+  if (!validResolution.has(options.moduleResolution ?? ts.ModuleResolutionKind.Classic)) {
+    problems.push("The react-library profile requires NodeNext or Bundler module resolution.");
+  }
+  if (!validModule.has(options.module ?? ts.ModuleKind.None)) {
+    problems.push("The react-library profile requires NodeNext, ESNext, or Preserve modules.");
+  }
+  if (!validJsx.has(options.jsx ?? ts.JsxEmit.None)) {
+    problems.push("The react-library profile requires a supported React JSX mode.");
+  }
+  if (options.jsxImportSource && options.jsxImportSource !== "react") {
+    problems.push(`Unsupported jsxImportSource: ${options.jsxImportSource}.`);
+  }
+  return problems;
 }
 
 export async function analyzeProject(
@@ -110,18 +156,15 @@ export async function analyzeProject(
   throwIfAborted(signal);
 
   const projectRoot = toRealPath(path.resolve(request.projectRoot));
-  if (!fs.statSync(projectRoot).isDirectory()) {
+  if (!fs.existsSync(projectRoot) || !fs.statSync(projectRoot).isDirectory()) {
     throw new AnalysisError(
       "PROJECT_ROOT_INVALID",
       `Project root is not a directory: ${projectRoot}`,
     );
   }
 
-  const configCandidate = path.resolve(projectRoot, request.tsconfigPath);
-  const entryCandidate = path.resolve(projectRoot, request.entrypoint);
-  const configPath = toRealPath(configCandidate);
-  const entrypoint = toRealPath(entryCandidate);
-
+  const configPath = toRealPath(path.resolve(projectRoot, request.tsconfigPath));
+  const entrypoint = toRealPath(path.resolve(projectRoot, request.entrypoint));
   if (!isInsideRoot(projectRoot, configPath) || !isInsideRoot(projectRoot, entrypoint)) {
     throw new AnalysisError(
       "PATH_OUTSIDE_PROJECT",
@@ -134,19 +177,22 @@ export async function analyzeProject(
   if (!isSupportedSourceFile(entrypoint) || entrypoint.endsWith(".d.ts")) {
     throw new AnalysisError(
       "ENTRYPOINT_UNSUPPORTED",
-      "Entrypoint must be a .ts or .mts source file.",
+      "Entrypoint must be a .ts, .tsx, or .mts source file.",
     );
   }
 
   const adapter = dependencies.compilerAdapter ?? new TypeScriptCompilerAdapter();
   const project = adapter.loadProject(configPath, entrypoint);
-  const profileSupported = isNodeNextProfile(project.compilerOptions);
+  const profile = profileFor(entrypoint, project.compilerOptions);
+  const problems = profileProblems(profile, project.compilerOptions);
   const nodes = new Map<string, GraphNode>();
   const edges: GraphEdge[] = [];
   const issues: AnalysisIssue[] = [];
   const issueKeys = new Set<string>();
   const externalSpecifiers = new Map<string, Set<string>>();
   const declaredRanges = loadDeclaredRanges(projectRoot);
+  const queue = [entrypoint];
+  const visited = new Set<string>();
 
   const addIssue = (issue: Omit<AnalysisIssue, "id">) => {
     const completed = makeIssue(issue);
@@ -156,13 +202,13 @@ export async function analyzeProject(
     }
   };
 
-  if (!profileSupported) {
+  for (const problem of problems) {
     addIssue({
       code: "CL001",
       severity: "error",
       blocking: true,
-      message: "The first CodeLift profile requires module and moduleResolution to be NodeNext.",
-      detail: "Other TypeScript module profiles are intentionally unsupported in this release.",
+      message: problem,
+      detail: "Choose a supported compiler configuration before creating an extraction plan.",
     });
   }
 
@@ -176,8 +222,102 @@ export async function analyzeProject(
     path: entryRelative,
   });
 
-  const queue = [entrypoint];
-  const visited = new Set<string>();
+  const addEdge = (source: string, target: string, dependency: DependencyRecord) => {
+    edges.push({
+      id: edgeId(source, target, dependency.specifier, dependency.location),
+      source,
+      target,
+      kind: dependency.kind,
+      specifier: dependency.specifier,
+      sourceText: dependency.sourceText,
+      location: dependency.location,
+    });
+  };
+
+  const addExternal = (source: string, dependency: DependencyRecord) => {
+    const packageName = packageNameFromSpecifier(dependency.specifier);
+    const target: GraphNode = {
+      id: `package:${packageName}`,
+      kind: "external-package",
+      label: packageName,
+      included: false,
+      packageName,
+    };
+    nodes.set(target.id, target);
+    const specifiers = externalSpecifiers.get(packageName) ?? new Set<string>();
+    specifiers.add(dependency.specifier);
+    externalSpecifiers.set(packageName, specifiers);
+    addEdge(source, target.id, dependency);
+  };
+
+  const addUnresolvedAsset = (source: string, dependency: DependencyRecord) => {
+    const target: GraphNode = {
+      id: stableId("unresolved", `${dependency.location.path}:${dependency.specifier}`),
+      kind: "unresolved",
+      label: dependency.specifier,
+      included: false,
+    };
+    nodes.set(target.id, target);
+    addIssue({
+      code: "CL010",
+      severity: "error",
+      blocking: true,
+      message: `Asset import is unsupported or unresolved: ${dependency.specifier}`,
+      location: dependency.location,
+      nodeId: source,
+    });
+    addEdge(source, target.id, dependency);
+  };
+
+  const recordAsset = (
+    source: string,
+    containingFile: string,
+    dependency: DependencyRecord,
+  ): boolean => {
+    const resolved = resolveAsset(dependency.specifier, containingFile, project.compilerOptions);
+    if (resolved) {
+      const real = toRealPath(resolved);
+      if (!isInsideRoot(projectRoot, real)) {
+        addUnresolvedAsset(source, dependency);
+        addIssue({
+          code: "CL004",
+          severity: "error",
+          blocking: true,
+          message: `Asset resolves outside the project root: ${dependency.specifier}`,
+          detail: real,
+          location: dependency.location,
+          nodeId: source,
+        });
+        return true;
+      }
+      const relative = normalizeRelativePath(projectRoot, real);
+      const target: GraphNode = {
+        id: `asset:${relative}`,
+        kind: "local-asset",
+        label: path.basename(relative),
+        included: true,
+        path: relative,
+      };
+      nodes.set(target.id, target);
+      addEdge(source, target.id, {
+        ...dependency,
+        kind:
+          dependency.kind === "style-import" || dependency.kind === "asset-reference"
+            ? dependency.kind
+            : "asset-import",
+      });
+      if (!visited.has(real)) queue.push(real);
+      return true;
+    }
+    if (
+      dependency.specifier.startsWith(".") ||
+      pathAliasMatches(dependency.specifier, project.compilerOptions.paths)
+    ) {
+      addUnresolvedAsset(source, dependency);
+      return true;
+    }
+    return false;
+  };
 
   while (queue.length > 0) {
     throwIfAborted(signal);
@@ -187,9 +327,21 @@ export async function analyzeProject(
     if (visited.has(currentReal)) continue;
     visited.add(currentReal);
     const currentRelative = normalizeRelativePath(projectRoot, currentReal);
+
+    if (isSupportedAsset(currentReal)) {
+      if (path.extname(currentReal).toLowerCase() !== ".css") continue;
+      const currentNodeId = `asset:${currentRelative}`;
+      const css = fs.readFileSync(currentReal, "utf8");
+      for (const reference of scanCss(css, currentRelative)) {
+        const dependency: DependencyRecord = reference;
+        if (!recordAsset(currentNodeId, currentReal, dependency))
+          addExternal(currentNodeId, dependency);
+      }
+      continue;
+    }
+
     const currentNodeId = `file:${currentRelative}`;
     const sourceFile = adapter.getSourceFile(project, currentReal);
-
     if (!sourceFile) {
       addIssue({
         code: "CL012",
@@ -216,112 +368,107 @@ export async function analyzeProject(
 
     for (const imported of scan.imports) {
       throwIfAborted(signal);
+      const dependency: DependencyRecord = imported;
       const normalizedBuiltin = imported.specifier.replace(/^node:/, "");
-      let targetNode: GraphNode;
-
       if (builtins.has(normalizedBuiltin)) {
-        targetNode = {
+        const target: GraphNode = {
           id: `builtin:${normalizedBuiltin}`,
           kind: "node-builtin",
           label: imported.specifier,
           included: false,
           builtinName: normalizedBuiltin,
         };
-      } else {
-        const resolution = adapter.resolveModule(project, imported.specifier, currentReal);
-        const resolvedPath = resolution.resolvedFileName
-          ? toRealPath(resolution.resolvedFileName)
-          : undefined;
-        const resolvesToNodeModules =
-          resolvedPath?.split(path.sep).includes("node_modules") ?? false;
+        nodes.set(target.id, target);
+        addEdge(currentNodeId, target.id, dependency);
+        continue;
+      }
 
-        if (resolvedPath && !resolution.isExternalLibraryImport && !resolvesToNodeModules) {
-          if (!isInsideRoot(projectRoot, resolvedPath)) {
-            targetNode = {
-              id: stableId("outside", `${currentRelative}:${imported.specifier}`),
-              kind: "unresolved",
-              label: imported.specifier,
-              included: false,
-            };
-            addIssue({
-              code: "CL004",
-              severity: "error",
-              blocking: true,
-              message: `Import resolves outside the project root: ${imported.specifier}`,
-              detail: resolvedPath,
-              location: imported.location,
-              nodeId: currentNodeId,
-            });
-          } else {
-            const relative = normalizeRelativePath(projectRoot, resolvedPath);
-            targetNode = {
-              id: `file:${relative}`,
-              kind: "local-file",
-              label: path.basename(relative),
-              included: true,
-              path: relative,
-            };
-            if (!isSupportedSourceFile(resolvedPath)) {
-              addIssue({
-                code: "CL002",
-                severity: "error",
-                blocking: true,
-                message: `Unsupported local file type: ${relative}`,
-                location: imported.location,
-                nodeId: targetNode.id,
-              });
-            } else if (!visited.has(resolvedPath)) {
-              queue.push(resolvedPath);
-            }
-          }
-        } else if (
-          resolution.isExternalLibraryImport ||
-          resolvesToNodeModules ||
-          (!imported.specifier.startsWith(".") &&
-            !pathAliasMatches(imported.specifier, project.compilerOptions.paths))
-        ) {
-          const packageName = packageNameFromSpecifier(imported.specifier);
-          targetNode = {
-            id: `package:${packageName}`,
-            kind: "external-package",
-            label: packageName,
-            included: false,
-            packageName,
-          };
-          const specifiers = externalSpecifiers.get(packageName) ?? new Set<string>();
-          specifiers.add(imported.specifier);
-          externalSpecifiers.set(packageName, specifiers);
-        } else {
-          targetNode = {
-            id: stableId("unresolved", `${currentRelative}:${imported.specifier}`),
+      if (
+        looksLikeAssetSpecifier(imported.specifier) &&
+        recordAsset(currentNodeId, currentReal, dependency)
+      ) {
+        continue;
+      }
+
+      const resolution = adapter.resolveModule(project, imported.specifier, currentReal);
+      const resolvedPath = resolution.resolvedFileName
+        ? toRealPath(resolution.resolvedFileName)
+        : undefined;
+      const resolvesToNodeModules = resolvedPath?.split(path.sep).includes("node_modules") ?? false;
+
+      if (resolvedPath && !resolution.isExternalLibraryImport && !resolvesToNodeModules) {
+        if (!isInsideRoot(projectRoot, resolvedPath)) {
+          const target: GraphNode = {
+            id: stableId("outside", `${currentRelative}:${imported.specifier}`),
             kind: "unresolved",
             label: imported.specifier,
             included: false,
           };
-          const asset = looksLikeAssetSpecifier(imported.specifier);
+          nodes.set(target.id, target);
           addIssue({
-            code: asset ? "CL010" : "CL003",
+            code: "CL004",
             severity: "error",
             blocking: true,
-            message: asset
-              ? `Asset import is unsupported: ${imported.specifier}`
-              : `Import could not be resolved: ${imported.specifier}`,
+            message: `Import resolves outside the project root: ${imported.specifier}`,
+            detail: resolvedPath,
             location: imported.location,
             nodeId: currentNodeId,
           });
+          addEdge(currentNodeId, target.id, dependency);
+          continue;
         }
+
+        const relative = normalizeRelativePath(projectRoot, resolvedPath);
+        const target: GraphNode = {
+          id: `file:${relative}`,
+          kind: "local-file",
+          label: path.basename(relative),
+          included: true,
+          path: relative,
+        };
+        nodes.set(target.id, target);
+        if (!isSupportedSourceFile(resolvedPath)) {
+          addIssue({
+            code: "CL002",
+            severity: "error",
+            blocking: true,
+            message: `Unsupported local file type: ${relative}`,
+            location: imported.location,
+            nodeId: target.id,
+          });
+        } else if (!visited.has(resolvedPath)) {
+          queue.push(resolvedPath);
+        }
+        addEdge(currentNodeId, target.id, dependency);
+        continue;
       }
 
-      nodes.set(targetNode.id, targetNode);
-      edges.push({
-        id: edgeId(currentNodeId, targetNode.id, imported.specifier, imported.location),
-        source: currentNodeId,
-        target: targetNode.id,
-        kind: imported.kind,
-        specifier: imported.specifier,
-        sourceText: imported.sourceText,
+      if (
+        resolution.isExternalLibraryImport ||
+        resolvesToNodeModules ||
+        (!imported.specifier.startsWith(".") &&
+          !pathAliasMatches(imported.specifier, project.compilerOptions.paths))
+      ) {
+        addExternal(currentNodeId, dependency);
+        continue;
+      }
+
+      const target: GraphNode = {
+        id: stableId("unresolved", `${currentRelative}:${imported.specifier}`),
+        kind: "unresolved",
+        label: imported.specifier,
+        included: false,
+      };
+      nodes.set(target.id, target);
+      addIssue({
+        code: "CL003",
+        severity: "error",
+        blocking: true,
+        message: `Import could not be resolved: ${imported.specifier}`,
         location: imported.location,
+        nodeId: currentNodeId,
       });
+      addEdge(currentNodeId, target.id, dependency);
     }
   }
 
@@ -337,14 +484,14 @@ export async function analyzeProject(
     }))
     .sort((left, right) => left.name.localeCompare(right.name));
 
-  return {
-    schemaVersion: 1,
+  const result: AnalysisResult = {
+    schemaVersion: 2,
     project: {
       root: projectRoot,
       tsconfig: normalizeRelativePath(projectRoot, configPath),
       typescriptVersion: project.typescriptVersion,
-      profile: "node-esm",
-      profileStatus: profileSupported ? "supported" : "unsupported",
+      profile,
+      profileStatus: problems.length === 0 ? "supported" : "unsupported",
     },
     entrypoint: entryRelative,
     nodes: nodeList,
@@ -355,6 +502,7 @@ export async function analyzeProject(
     reasons,
     stats: {
       localFiles: nodeList.filter((node) => node.kind === "local-file" && node.included).length,
+      localAssets: nodeList.filter((node) => node.kind === "local-asset" && node.included).length,
       externalPackages: externalPackages.length,
       nodeBuiltins: nodeList.filter((node) => node.kind === "node-builtin").length,
       unresolvedImports: nodeList.filter((node) => node.kind === "unresolved").length,
@@ -362,4 +510,6 @@ export async function analyzeProject(
       durationMs: Math.max(0, Math.round((now() - startedAt) * 100) / 100),
     },
   };
+
+  return result;
 }

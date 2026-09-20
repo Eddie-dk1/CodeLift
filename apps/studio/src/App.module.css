@@ -290,6 +290,42 @@
   font-size: 10px;
 }
 
+.cycleList {
+  display: grid;
+  gap: 6px;
+  margin-top: 11px;
+}
+
+.cycleList div {
+  padding: 7px 8px;
+  border-left: 2px solid var(--warning);
+  background: rgb(243 172 66 / 7%);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.graphFilter {
+  height: 27px;
+  margin-left: auto;
+  padding: 0 25px 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: #101922;
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.issueFilter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 10px;
+  color: var(--text-faint);
+  font-size: 9px;
+}
+
 .sectionHeading {
   display: flex;
   align-items: center;
@@ -394,6 +430,11 @@
   font-size: 12px;
 }
 
+.canvasHeader small {
+  color: var(--text-faint);
+  font-size: 9px;
+}
+
 .legend {
   display: flex;
   align-items: center;
@@ -417,6 +458,11 @@
 
 .legend .typeLine {
   background: repeating-linear-gradient(90deg, #9c7bf4 0 5px, transparent 5px 8px);
+}
+
+.legend .assetLine {
+  border-top-style: dotted;
+  border-top-color: #c48aca;
 }
 
 .legend .errorLine {

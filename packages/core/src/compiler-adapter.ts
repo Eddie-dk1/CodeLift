@@ -31,7 +31,16 @@ function formatDiagnostic(diagnostic: ts.Diagnostic): string {
 }
 
 export class TypeScriptCompilerAdapter implements CompilerAdapter {
+  private readonly projects = new Map<string, LoadedCompilerProject>();
+  private readonly resolutions = new WeakMap<
+    LoadedCompilerProject,
+    Map<string, ModuleResolution>
+  >();
+
   loadProject(configPath: string, entrypoint: string): LoadedCompilerProject {
+    const cacheKey = `${path.resolve(configPath)}\0${path.resolve(entrypoint)}`;
+    const cached = this.projects.get(cacheKey);
+    if (cached) return cached;
     const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
     if (configFile.error) {
       throw new AnalysisError("TSCONFIG_READ_FAILED", formatDiagnostic(configFile.error));
@@ -62,13 +71,16 @@ export class TypeScriptCompilerAdapter implements CompilerAdapter {
       ...(parsed.projectReferences ? { projectReferences: parsed.projectReferences } : {}),
     });
 
-    return {
+    const project = {
       program,
       compilerOptions: parsed.options,
       configPath,
       typescriptVersion: ts.version,
       rootNames,
     };
+    this.projects.set(cacheKey, project);
+    this.resolutions.set(project, new Map());
+    return project;
   }
 
   getSourceFile(project: LoadedCompilerProject, absolutePath: string): ts.SourceFile | undefined {
@@ -86,6 +98,10 @@ export class TypeScriptCompilerAdapter implements CompilerAdapter {
     specifier: string,
     containingFile: string,
   ): ModuleResolution {
+    const cache = this.resolutions.get(project);
+    const cacheKey = `${path.resolve(containingFile)}\0${specifier}`;
+    const cached = cache?.get(cacheKey);
+    if (cached) return cached;
     const host: ts.ModuleResolutionHost = {
       fileExists: fs.existsSync,
       readFile: (fileName) => {
@@ -115,11 +131,17 @@ export class TypeScriptCompilerAdapter implements CompilerAdapter {
       host,
     ).resolvedModule;
 
-    if (!resolution) return { isExternalLibraryImport: false };
+    if (!resolution) {
+      const unresolved = { isExternalLibraryImport: false };
+      cache?.set(cacheKey, unresolved);
+      return unresolved;
+    }
 
-    return {
+    const result = {
       resolvedFileName: resolution.resolvedFileName,
       isExternalLibraryImport: resolution.isExternalLibraryImport ?? false,
     };
+    cache?.set(cacheKey, result);
+    return result;
   }
 }
