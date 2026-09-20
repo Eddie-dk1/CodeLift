@@ -15,6 +15,14 @@ public JSON schemas are versioned independently.
 - Safe staging exporter with precise import-specifier rewrites and atomic destination creation.
 - Structural and optional isolated install/build/smoke verification.
 - Studio Plan → Review → Export → Verify workflow with cancellable jobs.
+- Read-only `codelift doctor` diagnostics with stable JSON output and explicit exit codes.
+- Public `codelift-cli/core` API export for analysis, planning, export, and verification.
+
+### Changed
+
+- Release automation now validates tags and package versions, runs the complete quality and packed
+  artifact smoke suite, and selects npm prerelease tags automatically.
+- The distributable package no longer includes JavaScript or declaration source maps.
 
 ### Security
 

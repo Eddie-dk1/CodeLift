@@ -25,6 +25,24 @@ function rewriteFiles(directory, replacements) {
   }
 }
 
+function removeSourceMaps(directory) {
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const absolute = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      removeSourceMaps(absolute);
+      continue;
+    }
+    if (entry.name.endsWith(".map")) {
+      fs.rmSync(absolute);
+      continue;
+    }
+    if (!entry.name.endsWith(".js") && !entry.name.endsWith(".d.ts")) continue;
+    const content = fs.readFileSync(absolute, "utf8");
+    const cleaned = content.replace(/^\/\/[#@] sourceMappingURL=.*(?:\r?\n|$)/gm, "");
+    if (cleaned !== content) fs.writeFileSync(absolute, cleaned);
+  }
+}
+
 fs.rmSync(path.join(cliDist, "core"), { recursive: true, force: true });
 fs.rmSync(path.join(cliDist, "studio-server"), { recursive: true, force: true });
 rewriteFiles(cliDist, [
@@ -41,3 +59,5 @@ rewriteFiles(path.join(cliDist, "studio-server"), [
   ['from "@codelift/core"', 'from "../core/index.js"'],
 ]);
 copyDirectory(path.join(workspaceRoot, "apps", "studio", "dist"), path.join(cliRoot, "studio"));
+removeSourceMaps(cliDist);
+removeSourceMaps(path.join(cliRoot, "studio"));

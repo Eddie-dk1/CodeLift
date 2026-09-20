@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img alt="Project status: alpha" src="https://img.shields.io/badge/status-alpha-44d5e7?style=flat-square&labelColor=0b1117" />
+  <img alt="Project status: beta" src="https://img.shields.io/badge/status-beta-44d5e7?style=flat-square&labelColor=0b1117" />
   <img alt="Node.js 24 or newer" src="https://img.shields.io/badge/node-%3E%3D24-78b85a?style=flat-square&labelColor=0b1117" />
   <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-e8f0f4?style=flat-square&labelColor=0b1117" />
 </p>
@@ -22,6 +22,8 @@
 > [!IMPORTANT]
 > CodeLift is pre-release software. The `codelift-cli` package is prepared for npm but has not been
 > published from this repository yet. Until it is published, use the source-checkout commands below.
+
+![CodeLift Studio showing a React dependency graph](docs/assets/codelift-studio.png)
 
 ## What CodeLift does
 
@@ -42,11 +44,11 @@ source project.
 
 ## Fastest start
 
-After the npm package is published, open a terminal in the project you want to inspect:
+After the beta package is published, open a terminal in the project you want to inspect:
 
 ```bash
 cd /path/to/your-project
-npx codelift-cli
+npx codelift-cli@beta
 ```
 
 That command starts the local Studio, selects the current directory as the project root, chooses a
@@ -55,9 +57,9 @@ single unambiguous `tsconfig`, and opens the browser. Nothing is installed globa
 Useful short forms:
 
 ```bash
-npx codelift-cli ./another-project       # Studio for another project
-npx codelift-cli src/index.ts            # Studio with this entrypoint selected
-npx codelift-cli inspect src/index.ts    # report in the terminal
+npx codelift-cli@beta ./another-project       # Studio for another project
+npx codelift-cli@beta src/index.ts            # Studio with this entrypoint selected
+npx codelift-cli@beta inspect src/index.ts    # report in the terminal
 ```
 
 If several TypeScript configurations can own the entrypoint, CodeLift does not guess. Studio asks
@@ -98,6 +100,20 @@ To use this checkout against another project without changing directories:
 pnpm build
 node packages/cli/dist/bin.js /absolute/path/to/project
 ```
+
+## Diagnose a project
+
+`doctor` checks the local runtime and project discovery without installing dependencies, executing
+project scripts, or changing source files:
+
+```bash
+codelift doctor
+codelift doctor ./another-project --entry src/index.ts
+codelift doctor --entry src/Card.tsx --tsconfig tsconfig.json --format json
+```
+
+Exit code `0` means the project is ready for analysis, `1` means a compatibility or ambiguity issue
+needs attention, and `2` means the diagnostic itself could not run.
 
 ## CLI workflow
 
@@ -237,7 +253,7 @@ import {
   createExtractionPlan,
   exportPackage,
   verifyPackage,
-} from "@codelift/core";
+} from "codelift-cli/core";
 
 const analysis = await analyzeProject({
   projectRoot: "/absolute/project",
@@ -290,7 +306,7 @@ codelift-cli
 ├── CLI commands
 ├── Fastify loopback server
 ├── compiled React Studio
-└── @codelift/core
+└── codelift-cli/core
     ├── project discovery
     ├── TypeScript compatibility adapter
     ├── TS/TSX/CSS/resource graph

@@ -1,0 +1,40 @@
+name: Bug report
+description: Report incorrect behavior in a supported CodeLift profile.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Please remove private source code, credentials, usernames, and absolute paths before posting.
+  - type: input
+    id: version
+    attributes:
+      label: CodeLift version
+      placeholder: 0.4.0-beta.0
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: macOS 15, Node 24.13, npm 11
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command and sanitized output
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Link to a small public repository when possible. Do not upload proprietary code.
