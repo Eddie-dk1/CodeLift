@@ -75,10 +75,26 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e
 
+  export-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12.4.0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Analyze, export, build, and smoke test Node and React fixtures
+        run: pnpm test:export-smoke
+
   quality-gate:
     name: Quality gate
     if: always()
-    needs: [verify, package-smoke, e2e]
+    needs: [verify, package-smoke, e2e, export-smoke]
     runs-on: ubuntu-latest
     steps:
       - name: Require every CI job to pass
@@ -86,7 +102,9 @@ jobs:
           VERIFY_RESULT: ${{ needs.verify.result }}
           PACKAGE_RESULT: ${{ needs.package-smoke.result }}
           E2E_RESULT: ${{ needs.e2e.result }}
+          EXPORT_SMOKE_RESULT: ${{ needs.export-smoke.result }}
         run: |
           test "$VERIFY_RESULT" = success
           test "$PACKAGE_RESULT" = success
           test "$E2E_RESULT" = success
+          test "$EXPORT_SMOKE_RESULT" = success

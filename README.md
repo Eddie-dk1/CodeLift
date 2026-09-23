@@ -339,6 +339,17 @@ pnpm build
 pnpm test:e2e
 ```
 
+To test the complete extraction workflow using the packed CLI, run:
+
+```bash
+pnpm build
+pnpm test:export-smoke
+```
+
+This analyzes the Node and React fixtures, exports both packages into temporary directories,
+installs their dependencies, builds them, runs smoke checks, and verifies that the source fixtures
+did not change.
+
 Convenience commands:
 
 ```bash
@@ -355,8 +366,9 @@ npm pack --dry-run
 ```
 
 CI runs lint, type checking, unit/integration tests, builds, browser tests, and package smoke tests on
-Node 24 across Ubuntu, macOS, and Windows. See [docs/releasing.md](docs/releasing.md) for the guarded
-npm provenance workflow. The project is licensed under [MIT](LICENSE).
+Node 24 across Ubuntu, macOS, and Windows. It also builds and smoke-tests both exported fixture
+packages on Ubuntu. See [docs/releasing.md](docs/releasing.md) for the guarded npm provenance
+workflow. The project is licensed under [MIT](LICENSE).
 
 ## Release status
 

@@ -38,7 +38,9 @@ cd packages/cli && npm pack --dry-run
 The release preflight verifies that the root, core, CLI, Studio, and server versions match and that
 the package has no lifecycle scripts. The packed tarball must also be installed into an empty npm
 project and checked through `codelift --version`, `codelift doctor`, `codelift inspect`,
-`codelift-cli/core`, and the packaged Studio HTTP endpoint.
+`codelift-cli/core`, and the packaged Studio HTTP endpoint. The same tarball must complete Node and
+React analyze → plan → export → install → build → smoke workflows, with unchanged source fixture
+hashes.
 
 ## GitHub dry run
 
