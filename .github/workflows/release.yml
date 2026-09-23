@@ -81,6 +81,13 @@ jobs:
           wait "$studio_pid" 2>/dev/null || true
           trap - EXIT
 
+      - name: Build and smoke test exported Node and React packages
+        shell: bash
+        run: |
+          tarball=$(find "$RUNNER_TEMP" -maxdepth 1 -type f -name 'codelift-cli-*.tgz' -print -quit)
+          test -n "$tarball"
+          pnpm test:export-smoke "$tarball"
+
       - name: Write the release preflight summary
         shell: bash
         run: |
@@ -95,7 +102,7 @@ jobs:
             echo "- Tarball size: \`$(stat -c%s "$tarball") bytes\`"
             echo "- Publish command: \`npm publish --tag ${{ steps.release.outputs.npm_tag }} --access public\`"
             echo
-            echo "All lint, typecheck, test, build, Playwright, production audit, package install, CLI, core API, and Studio smoke checks passed."
+            echo "All lint, typecheck, test, build, Playwright, production audit, package install, CLI, core API, Studio, and exported Node/React build and smoke checks passed."
             echo
             echo "<details><summary>Tarball files</summary>"
             echo

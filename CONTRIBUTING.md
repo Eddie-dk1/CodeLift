@@ -58,6 +58,10 @@ pnpm test:e2e
 pnpm audit --prod
 ```
 
+For changes to analysis, plans, export, or verification, also run `pnpm build` followed by
+`pnpm test:export-smoke`. This packs the CLI and builds exported Node and React fixtures in isolated
+temporary directories.
+
 For packaging changes, also run:
 
 ```bash
