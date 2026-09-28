@@ -247,6 +247,16 @@ export async function createExtractionPlan(
     }),
   );
   const issues = [...analysis.issues];
+  if (analysis.externalPackages.some((dependency) => dependency.name === "next")) {
+    issues.push(
+      planIssue(
+        "CLP005",
+        "Next.js runtime imports cannot be exported as a standalone React library.",
+        true,
+        "Choose a framework-independent entrypoint, or keep this module inside the Next.js application.",
+      ),
+    );
+  }
   const planningPackages = [...analysis.externalPackages];
   if (analysis.project.profile === "react-library" && fs.existsSync(packageJsonPath)) {
     const manifest = JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as Record<

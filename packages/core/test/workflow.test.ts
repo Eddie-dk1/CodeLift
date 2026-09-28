@@ -148,6 +148,52 @@ describe("CodeLift extraction workflow", () => {
     expect(fs.readFileSync(path.join(destination, "vite.config.ts"), "utf8")).toContain(
       'id.startsWith(name + "/")',
     );
+    const verification = await verifyPackage({ packageRoot: destination });
+    expect(verification.status).toBe("not-run");
+    expect(verification.checks.find((item) => item.id === "react-render")?.status).toBe("not-run");
+  });
+
+  it("blocks Next.js runtime modules from standalone React library export", async () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codelift-next-plan-"));
+    temporaryDirectories.push(projectRoot);
+    fs.mkdirSync(path.join(projectRoot, "src"));
+    fs.writeFileSync(
+      path.join(projectRoot, "package.json"),
+      JSON.stringify({
+        private: true,
+        type: "module",
+        dependencies: { next: "^16.0.0", react: "^19.0.0", "react-dom": "^19.0.0" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(projectRoot, "tsconfig.json"),
+      JSON.stringify({
+        compilerOptions: {
+          jsx: "react-jsx",
+          module: "ESNext",
+          moduleResolution: "Bundler",
+          target: "ES2022",
+        },
+        include: ["src/**/*.tsx"],
+      }),
+    );
+    fs.writeFileSync(
+      path.join(projectRoot, "src", "page.tsx"),
+      'import { useRouter } from "next/navigation";\nexport function Page() { return useRouter(); }\n',
+    );
+
+    const plan = await createExtractionPlan({
+      projectRoot,
+      tsconfigPath: "tsconfig.json",
+      entrypoint: "src/page.tsx",
+      packageName: "next-page-trial",
+      destination: path.join(os.tmpdir(), "codelift-next-page-trial"),
+    });
+
+    expect(plan.status).toBe("blocked");
+    expect(plan.issues).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "CLP005", blocking: true })]),
+    );
   });
 
   it("keeps the plan identity portable and invalidates it when the lockfile changes", async () => {

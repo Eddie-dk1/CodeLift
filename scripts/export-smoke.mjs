@@ -12,8 +12,32 @@ const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codelift-export-smo
 process.env.npm_config_cache = path.join(temporaryRoot, "npm-cache");
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const cases = [
-  { fixture: "node-library", entrypoint: "src/index.ts", packageName: "codelift-smoke-node" },
-  { fixture: "react-library", entrypoint: "src/Card.tsx", packageName: "codelift-smoke-react" },
+  {
+    fixture: "node-library",
+    entrypoint: "src/index.ts",
+    packageName: "codelift-smoke-node",
+    expectedStatus: "passed",
+  },
+  {
+    fixture: "react-library",
+    entrypoint: "src/Card.tsx",
+    packageName: "codelift-smoke-react",
+    expectedStatus: "passed",
+    expectedRender: "passed",
+  },
+  {
+    fixture: "react-library",
+    entrypoint: "src/NeedsProps.tsx",
+    packageName: "codelift-smoke-react-props",
+    expectedStatus: "unsupported",
+    expectedRender: "unsupported",
+  },
+  {
+    fixture: "react-library",
+    entrypoint: "src/math.ts",
+    packageName: "codelift-smoke-react-utility",
+    expectedStatus: "passed",
+  },
 ];
 
 function digestDirectory(root) {
@@ -84,7 +108,7 @@ try {
   for (const item of cases) {
     const fixtureRoot = path.join(workspaceRoot, "fixtures", item.fixture);
     const before = digestDirectory(fixtureRoot);
-    const caseRoot = path.join(temporaryRoot, item.fixture);
+    const caseRoot = path.join(temporaryRoot, item.packageName);
     const destination = path.join(caseRoot, item.packageName);
     const planPath = path.join(caseRoot, "plan.json");
     fs.mkdirSync(caseRoot);
@@ -131,7 +155,7 @@ try {
     );
     assert.equal(
       verification.status,
-      "passed",
+      item.expectedStatus,
       `${item.fixture} verification failed: ${JSON.stringify(verification.checks, null, 2)}`,
     );
     for (const id of [
@@ -149,8 +173,15 @@ try {
         `${item.fixture}: ${id} did not pass`,
       );
     }
+    assert.equal(
+      verification.checks.find((check) => check.id === "react-render")?.status,
+      item.expectedRender,
+      `${item.packageName}: unexpected React render result`,
+    );
     assert.equal(digestDirectory(fixtureRoot), before, `${item.fixture} source fixture changed`);
-    process.stdout.write(`${item.fixture}: analyze, plan, export, install, build, smoke passed\n`);
+    process.stdout.write(
+      `${item.packageName}: install/build/import passed; verify ${item.expectedStatus}\n`,
+    );
   }
 } finally {
   fs.rmSync(temporaryRoot, { recursive: true, force: true });
