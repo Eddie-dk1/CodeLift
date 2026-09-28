@@ -144,7 +144,7 @@ function overallStatus(checks: VerificationCheck[]): VerificationResult["status"
   if (checks.some((item) => item.status === "cancelled")) return "cancelled";
   if (checks.some((item) => item.status === "failed")) return "failed";
   if (checks.some((item) => item.status === "not-run")) return "not-run";
-  if (checks.every((item) => item.status === "unsupported")) return "unsupported";
+  if (checks.some((item) => item.status === "unsupported")) return "unsupported";
   return "passed";
 }
 
@@ -201,6 +201,11 @@ export async function verifyPackage(
         check("build", "Package build", "not-run", "Dependencies were not installed."),
         check("smoke", "Public export smoke test", "not-run", "The package was not built."),
       );
+      if (report.plan.target.profile === "react-library") {
+        checks.push(
+          check("react-render", "React render smoke test", "not-run", "The package was not built."),
+        );
+      }
     } else {
       sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "codelift-verify-"));
       fs.cpSync(packageRoot, sandbox, { recursive: true });
@@ -236,7 +241,18 @@ export async function verifyPackage(
           const entryUrl = pathToFileURL(path.join(sandbox, "dist", "index.js")).href;
           const smokeProgram =
             report.plan.target.profile === "react-library"
-              ? `const library = await import(${JSON.stringify(entryUrl)}); const React = await import("react"); const { renderToStaticMarkup } = await import("react-dom/server"); const component = Object.entries(library).find(([name, value]) => /^[A-Z]/u.test(name) && typeof value === "function")?.[1]; if (!component) throw new Error("No exported React component was found for the smoke test."); renderToStaticMarkup(React.createElement(component, {}));`
+              ? `const library = await import(${JSON.stringify(entryUrl)});
+                 if (Object.keys(library).length === 0) throw new Error("The public export is empty.");
+                 const React = await import("react");
+                 const { renderToStaticMarkup } = await import("react-dom/server");
+                 const component = typeof library.default === "function"
+                   ? library.default
+                   : Object.entries(library).find(([name, value]) => /^[A-Z]/u.test(name) && typeof value === "function")?.[1];
+                 if (!component) process.exitCode = 3;
+                 else {
+                   try { renderToStaticMarkup(React.createElement(component, {})); }
+                   catch { process.exitCode = 4; }
+                 }`
               : `await import(${JSON.stringify(entryUrl)});`;
           const smoke = await runCommand(
             process.execPath,
@@ -244,23 +260,57 @@ export async function verifyPackage(
             sandbox,
             signal,
           );
+          const importPassed =
+            report.plan.target.profile === "react-library"
+              ? [0, 3, 4].includes(smoke.code)
+              : smoke.code === 0;
           checks.push(
             check(
               "smoke",
-              "Public export smoke test",
-              smoke.code === 0 ? "passed" : "failed",
-              smoke.code === 0 ? undefined : `Smoke import exited with code ${smoke.code}.`,
+              "Public export smoke import",
+              importPassed ? "passed" : "failed",
+              importPassed ? undefined : `Smoke import exited with code ${smoke.code}.`,
               smoke.output,
             ),
           );
+          if (report.plan.target.profile === "react-library" && smoke.code !== 3) {
+            const rendered = smoke.code === 0;
+            checks.push(
+              check(
+                "react-render",
+                "React render smoke test",
+                !importPassed ? "not-run" : rendered ? "passed" : "unsupported",
+                !importPassed
+                  ? "The public export could not be imported."
+                  : rendered
+                    ? undefined
+                    : "The component could not be rendered without application props or context.",
+              ),
+            );
+          }
         } else {
           checks.push(check("smoke", "Public export smoke test", "not-run", "The build failed."));
+          if (report.plan.target.profile === "react-library") {
+            checks.push(
+              check("react-render", "React render smoke test", "not-run", "The build failed."),
+            );
+          }
         }
       } else {
         checks.push(
           check("build", "Package build", "not-run", "Dependency installation failed."),
           check("smoke", "Public export smoke test", "not-run", "Dependency installation failed."),
         );
+        if (report.plan.target.profile === "react-library") {
+          checks.push(
+            check(
+              "react-render",
+              "React render smoke test",
+              "not-run",
+              "Dependency installation failed.",
+            ),
+          );
+        }
       }
     }
   } catch (error) {
