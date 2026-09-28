@@ -3,6 +3,27 @@
 All notable changes to CodeLift are documented here. The project follows Semantic Versioning while
 public JSON schemas are versioned independently.
 
+## 0.4.0-beta.1 — pending publication
+
+### Changed
+
+- Analysis chooses the output profile from the reachable graph, not merely the source `tsconfig`:
+  pure TypeScript inside a JSX/Bundler app now uses a TypeScript build without React or Vite.
+- Asset-only graphs use a separate `vite-library` profile without React peer dependencies.
+- `AnalysisResult` schema is now 3 and Extraction Plan schema is now 2. Plans made by older
+  CodeLift versions must be recreated before export.
+- CSS references are parsed from CSS syntax rather than regular-expression matches; aliases
+  without `baseUrl` and supported resource query suffixes retain precise rewrite locations.
+
+### Added
+
+- Blocking diagnostics for project-local ambient declarations and server-action/server-only
+  modules; global Tailwind or missing local styles require an explicit manual styling review.
+- Semver and npm/pnpm lockfile checks for imported dependency ranges, with blocking mismatches and
+  reviewable missing-lock warnings. `workspace:` and `link:` ranges remain unsupported.
+- Packed-package build/import smoke tests for alias-heavy TypeScript, CSS-only Vite output, and
+  React resources with query suffixes.
+
 ## 0.4.0-beta.0 — 2026-09-20
 
 ### Added

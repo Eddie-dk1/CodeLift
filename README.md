@@ -21,9 +21,9 @@
 </p>
 
 > [!IMPORTANT]
-> CodeLift is beta software. The current release is
-> [`codelift-cli@0.4.0-beta.0`](https://www.npmjs.com/package/codelift-cli). Use the `beta` dist-tag
-> until the first stable release.
+> CodeLift is beta software. Use the [`beta` dist-tag](https://www.npmjs.com/package/codelift-cli)
+> until the first stable release. The repository may contain changes prepared for the next beta
+> before they appear on npm.
 
 ![CodeLift Studio showing a React dependency graph](docs/assets/codelift-studio.png)
 
@@ -226,21 +226,33 @@ session token, source project, plan digest, and destination.
 
 ## Supported profiles
 
-| Capability | `node-esm` | `react-library` |
-| --- | :---: | :---: |
-| `.ts` / `.mts` | ✓ | ✓ |
-| `.tsx` and standard React JSX modes | — | ✓ |
-| CSS and CSS Modules | — | ✓ |
-| JSON and SVG | — | ✓ |
-| PNG, JPEG, WebP, GIF, AVIF, ICO | — | ✓ |
-| WOFF/WOFF2, TTF, OTF | — | ✓ |
-| TypeScript `paths` aliases | ✓ | ✓ |
-| Node built-ins | ✓ | Diagnosed when present |
-| Package build | TypeScript | Vite library mode + declarations |
+| Capability | `node-esm` | `vite-library` | `react-library` |
+| --- | :---: | :---: | :---: |
+| Pure `.ts` / `.mts` | ✓ | ✓ | ✓ |
+| `.tsx` and standard React JSX modes | — | — | ✓ |
+| CSS, CSS Modules, and common assets | — | ✓ | ✓ |
+| TypeScript `paths` aliases | ✓ | ✓ | ✓ |
+| Node built-ins | ✓ | Blocking issue | Blocking issue |
+| Package build | TypeScript | Vite + declarations | Vite + declarations |
+
+The source `tsconfig` controls how imports are resolved, but it does not dictate the exported
+package's build profile. CodeLift chooses the profile from the files actually reachable from the
+entrypoint. A pure `.ts` utility inside a React/Bundler app therefore does not gain React peers or
+Vite. Assets without React use `vite-library`.
 
 React and React DOM are classified as both peer dependencies and development dependencies. Other
 runtime imports become dependencies. Ranges come from the source manifest; CodeLift never replaces
-them with `latest`.
+them with `latest`. If a supported npm or pnpm lockfile pins a conflicting version, planning is
+blocked. Missing lock entries require explicit review. `workspace:` and `link:` ranges cannot be
+exported silently.
+
+Project-local ambient declarations are reported as blocking until their type dependency is made
+explicit. CSS `@import`, CSS Modules `composes`, and `url(...)` are traced with source locations;
+supported resource query suffixes are preserved during rewrites. Application-global styling is
+not inferred from component imports: Tailwind or class names without a reachable stylesheet cause
+a review warning, and you must decide how the new package gets its styles. CodeLift never copies an
+entire app stylesheet automatically. Next.js runtime, `server-only`, and `"use server"` modules
+are blocking; a portable `"use client"` component is not rejected just for that directive.
 
 Not yet supported: CommonJS, Sass/Less, React Native, custom bundler loaders/plugins, multiple
 entrypoints, project references, workspace package transfer, and automatic test migration.
@@ -280,8 +292,8 @@ if (plan.status === "ready") {
 
 Public schemas are independently versioned:
 
-- `AnalysisResult` schema `2`;
-- `ExtractionPlan` schema `1`;
+- `AnalysisResult` schema `3`;
+- `ExtractionPlan` schema `2` (recreate plans made by older beta versions);
 - `ExportResult` schema `1`;
 - `VerificationResult` schema `1`.
 
@@ -346,7 +358,7 @@ pnpm build
 pnpm test:export-smoke
 ```
 
-This analyzes the Node and React fixtures, exports both packages into temporary directories,
+This analyzes Node, alias-heavy TypeScript, Vite/CSS, and React fixtures, exports the packages into temporary directories,
 installs their dependencies, builds them, runs smoke checks, and verifies that the source fixtures
 did not change.
 
@@ -372,8 +384,11 @@ workflow. The project is licensed under [MIT](LICENSE).
 
 ## Release status
 
-- `0.4.0-beta.0` — current npm beta with one-command launch, React/resource analysis, versioned
-  plans, safe export, isolated verification, and the complete Studio workflow;
+- `0.4.0-beta.0` — published npm beta with one-command launch, analysis, export, verification,
+  and Studio workflow;
+- `0.4.0-beta.1` — source release candidate with graph-based profiles, improved CSS/alias tracing,
+  portability diagnostics, and dependency range checks; not published until release preflight and
+  explicit confirmation;
 - `1.0.0` — after Node utility, React component, and alias-heavy real-world migrations stabilize the
   schemas and edge cases.
 

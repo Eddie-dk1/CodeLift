@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { AnalysisError } from "./errors.js";
 import { isInsideRoot, toRealPath } from "./path-utils.js";
+import { CODELIFT_TOOL_VERSION } from "./planning.js";
 import type {
   ExportOptions,
   ExportResult,
@@ -21,6 +22,12 @@ function yieldToEventLoop(): Promise<void> {
 }
 
 function verifyPlanDigest(plan: ExtractionPlan): void {
+  if (plan.schemaVersion !== 2 || plan.toolVersion !== CODELIFT_TOOL_VERSION) {
+    throw new AnalysisError(
+      "PLAN_VERSION_UNSUPPORTED",
+      "This extraction plan was created by an incompatible CodeLift version. Create a new plan before exporting.",
+    );
+  }
   if (digestExtractionPlan(plan) !== plan.digest) {
     throw new AnalysisError("PLAN_TAMPERED", "The extraction plan digest is invalid.");
   }
@@ -139,8 +146,10 @@ function dependenciesFor(plan: ExtractionPlan): Record<string, Record<string, st
   }
   const dev = result.devDependencies ?? {};
   dev.typescript = "^7.0.2";
-  if (plan.target.profile === "react-library") {
+  if (plan.target.profile !== "node-esm") {
     dev.vite = "^8.3.0";
+  }
+  if (plan.target.profile === "react-library") {
     dev["@types/react"] = "^19.0.0";
     dev["@types/react-dom"] = "^19.0.0";
   } else if (plan.analysis.stats.nodeBuiltins > 0) {
@@ -155,7 +164,7 @@ function generatedPackageJson(plan: ExtractionPlan): string {
   const exportsMap: Record<string, unknown> = {
     ".": { types: "./dist/index.d.ts", import: "./dist/index.js" },
   };
-  if (plan.target.profile === "react-library" && hasStyles)
+  if (plan.target.profile !== "node-esm" && hasStyles)
     exportsMap["./style.css"] = "./dist/style.css";
   return stableJson({
     name: plan.target.packageName,
@@ -166,7 +175,7 @@ function generatedPackageJson(plan: ExtractionPlan): string {
     exports: exportsMap,
     scripts: {
       build:
-        plan.target.profile === "react-library"
+        plan.target.profile !== "node-esm"
           ? "vite build && tsc -p tsconfig.build.json --emitDeclarationOnly"
           : "tsc -p tsconfig.build.json",
       typecheck: "tsc -p tsconfig.json --noEmit",
@@ -184,13 +193,17 @@ function generatedPackageJson(plan: ExtractionPlan): string {
 function generatedTsconfig(plan: ExtractionPlan, build: boolean): string {
   const compilerOptions: Record<string, unknown> = {
     target: "ES2022",
-    module: plan.target.profile === "react-library" ? "ESNext" : "NodeNext",
-    moduleResolution: plan.target.profile === "react-library" ? "Bundler" : "NodeNext",
+    module: plan.target.profile !== "node-esm" ? "ESNext" : "NodeNext",
+    moduleResolution: plan.target.profile !== "node-esm" ? "Bundler" : "NodeNext",
     strict: true,
     rootDir: "src",
     ...(build ? { outDir: "dist", declaration: true, declarationMap: true, sourceMap: true } : {}),
-    ...(plan.target.profile === "react-library"
-      ? { jsx: "react-jsx", resolveJsonModule: true, types: ["vite/client"] }
+    ...(plan.target.profile !== "node-esm"
+      ? {
+          ...(plan.target.profile === "react-library" ? { jsx: "react-jsx" } : {}),
+          resolveJsonModule: true,
+          types: ["vite/client"],
+        }
       : plan.analysis.stats.nodeBuiltins > 0
         ? { types: ["node"] }
         : {}),
@@ -231,7 +244,7 @@ function writeGeneratedFiles(stage: string, plan: ExtractionPlan): void {
     path.join(stage, "README.md"),
     `# ${plan.target.packageName}\n\nExtracted with CodeLift from \`${plan.source.entrypoint}\`.\n\n## Build\n\n\`\`\`bash\nnpm install\nnpm run build\n\`\`\`\n`,
   );
-  if (plan.target.profile === "react-library") {
+  if (plan.target.profile !== "node-esm") {
     fs.writeFileSync(path.join(stage, "vite.config.ts"), generatedViteConfig(plan));
   }
   const entry = plan.files.find((file) => file.source === plan.source.entrypoint);

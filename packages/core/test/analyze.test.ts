@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { scanCss } from "../src/asset-scanner.js";
 import { analyzeProject } from "../src/index.js";
 
 const temporaryDirectories: string[] = [];
@@ -51,7 +52,7 @@ describe("analyzeProject", () => {
     const second = await analyzeProject(request, undefined, { now: () => 10 });
 
     expect(first.project.profileStatus).toBe("supported");
-    expect(first.schemaVersion).toBe(2);
+    expect(first.schemaVersion).toBe(3);
     expect(first.nodes).toEqual(second.nodes);
     expect(first.edges).toEqual(second.edges);
     expect(first.cycles).toEqual(second.cycles);
@@ -103,6 +104,169 @@ describe("analyzeProject", () => {
       { name: "react", specifiers: ["react"], declaredRange: "^19.3.0" },
     ]);
     expect(result.issues).toHaveLength(0);
+  });
+
+  it("keeps pure TypeScript in a JSX/Bundler project on the Node output profile", async () => {
+    const result = await analyzeProject({
+      projectRoot: fixture("react-library"),
+      tsconfigPath: "tsconfig.json",
+      entrypoint: "src/math.ts",
+    });
+    expect(result.project.profile).toBe("node-esm");
+    expect(result.stats.localAssets).toBe(0);
+    expect(result.externalPackages).toHaveLength(0);
+    expect(result.issues).toHaveLength(0);
+  });
+
+  it("follows re-exports and nested aliases without a baseUrl", async () => {
+    const result = await analyzeProject({
+      projectRoot: fixture("alias-no-baseurl"),
+      tsconfigPath: "tsconfig.json",
+      entrypoint: "src/index.ts",
+    });
+    expect(result.project.profile).toBe("node-esm");
+    expect(result.stats.localFiles).toBe(4);
+    expect(result.issues).toHaveLength(0);
+    expect(result.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "re-export", specifier: "@lib/normalize.js" }),
+        expect.objectContaining({ kind: "type-only", specifier: "@lib/types.js" }),
+        expect.objectContaining({ kind: "static-import", specifier: "@lib/trim.js" }),
+      ]),
+    );
+  });
+
+  it("parses CSS syntax, aliases and query suffixes without tracing comments", async () => {
+    const result = await analyzeProject({
+      projectRoot: fixture("react-library"),
+      tsconfigPath: "tsconfig.json",
+      entrypoint: "src/Query.tsx",
+    });
+    expect(result.project.profile).toBe("react-library");
+    expect(result.issues).toHaveLength(0);
+    expect(result.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ specifier: "@ui/mark.svg?url", kind: "asset-import" }),
+        expect.objectContaining({ specifier: "@ui/theme.css", kind: "style-import" }),
+        expect.objectContaining({ specifier: "@ui/surface.module.css", kind: "style-import" }),
+        expect.objectContaining({ specifier: "./mark.svg?v=1", kind: "asset-reference" }),
+      ]),
+    );
+    expect(result.edges.some((edge) => edge.specifier.includes("missing"))).toBe(false);
+    const cssImport = result.edges.find((edge) => edge.specifier === "@ui/theme.css");
+    expect(cssImport?.location).toMatchObject({
+      path: "src/Query.module.css",
+      line: 2,
+      column: 14,
+    });
+  });
+
+  it("retains CSS evidence coordinates with CRLF line endings", () => {
+    const references = scanCss('/* ignored */\r\n@import url("./theme.css");\r\n', "src/test.css");
+    expect(references).toEqual([
+      expect.objectContaining({
+        specifier: "./theme.css",
+        location: expect.objectContaining({ line: 2, column: 14 }),
+      }),
+    ]);
+  });
+
+  it("reports unsupported asset queries and malformed CSS instead of omitting them", async () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codelift-css-issue-"));
+    temporaryDirectories.push(projectRoot);
+    fs.cpSync(fixture("react-library"), projectRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(projectRoot, "src/Query.tsx"),
+      'import mark from "./mark.svg?component";\nexport const value = mark;\n',
+    );
+    fs.writeFileSync(path.join(projectRoot, "src/Card.module.css"), ".card { color: red;");
+    const query = await analyzeProject({
+      projectRoot,
+      tsconfigPath: "tsconfig.json",
+      entrypoint: "src/Query.tsx",
+    });
+    const css = await analyzeProject({
+      projectRoot,
+      tsconfigPath: "tsconfig.json",
+      entrypoint: "src/Card.tsx",
+    });
+    expect(query.issues.some((issue) => issue.code === "CL010" && issue.blocking)).toBe(true);
+    expect(css.issues.some((issue) => issue.code === "CL013" && issue.blocking)).toBe(true);
+  });
+
+  it("reports local ambient declarations as a blocking portability dependency", async () => {
+    const result = await analyzeProject({
+      projectRoot: fixture("ambient-local"),
+      tsconfigPath: "tsconfig.json",
+      entrypoint: "src/index.ts",
+    });
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "CL014",
+          blocking: true,
+          location: expect.objectContaining({ line: 1 }),
+        }),
+      ]),
+    );
+  });
+
+  it("requires manual styling review for app-global Tailwind classes", async () => {
+    const result = await analyzeProject({
+      projectRoot: fixture("react-tailwind"),
+      tsconfigPath: "tsconfig.json",
+      entrypoint: "src/Badge.tsx",
+    });
+    expect(result.issues).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "CL015", blocking: false })]),
+    );
+    expect(result.stats.localAssets).toBe(0);
+  });
+
+  it("blocks server actions while preserving portable use-client components", async () => {
+    const projectRoot = fixture("framework-boundary");
+    const server = await analyzeProject({
+      projectRoot,
+      tsconfigPath: "tsconfig.json",
+      entrypoint: "src/server.ts",
+    });
+    const client = await analyzeProject({
+      projectRoot,
+      tsconfigPath: "tsconfig.json",
+      entrypoint: "src/client.tsx",
+    });
+    expect(server.issues.some((issue) => issue.code === "CL016" && issue.blocking)).toBe(true);
+    expect(client.issues.some((issue) => issue.code === "CL016")).toBe(false);
+  });
+
+  it("reports framework-specific glob loading instead of silently omitting dependencies", async () => {
+    const result = await analyzeProject({
+      projectRoot: fixture("framework-boundary"),
+      tsconfigPath: "tsconfig.json",
+      entrypoint: "src/glob.ts",
+    });
+    expect(result.issues.some((issue) => issue.code === "CL019" && issue.blocking)).toBe(true);
+  });
+
+  it("reports NodeNext CommonJS interpretation as unsupported", async () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codelift-commonjs-"));
+    temporaryDirectories.push(projectRoot);
+    fs.mkdirSync(path.join(projectRoot, "src"));
+    fs.writeFileSync(path.join(projectRoot, "package.json"), '{"private":true,"type":"commonjs"}');
+    fs.writeFileSync(
+      path.join(projectRoot, "tsconfig.json"),
+      JSON.stringify({
+        compilerOptions: { module: "NodeNext", moduleResolution: "NodeNext", target: "ES2022" },
+        include: ["src/**/*.ts"],
+      }),
+    );
+    fs.writeFileSync(path.join(projectRoot, "src/index.ts"), "export const value = 1;");
+    const result = await analyzeProject({
+      projectRoot,
+      tsconfigPath: "tsconfig.json",
+      entrypoint: "src/index.ts",
+    });
+    expect(result.issues.some((issue) => issue.code === "CL017" && issue.blocking)).toBe(true);
   });
 
   it("reports unsupported imports without executing source code", async () => {

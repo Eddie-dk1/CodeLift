@@ -1,6 +1,6 @@
 {
   "name": "codelift-workspace",
-  "version": "0.4.0-beta.0",
+  "version": "0.4.0-beta.1",
   "private": true,
   "description": "Analyze, extract, and verify TypeScript and React modules locally.",
   "license": "MIT",

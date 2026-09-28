@@ -20,6 +20,7 @@ export interface ScanIssue {
 export interface ScanResult {
   imports: ImportRecord[];
   issues: ScanIssue[];
+  classNameLocation?: SourceLocation;
 }
 
 function locationFor(
@@ -48,6 +49,16 @@ function importIsTypeOnly(node: ts.ImportDeclaration): boolean {
       ts.isNamedImports(bindings) &&
       bindings.elements.length > 0 &&
       bindings.elements.every((item) => item.isTypeOnly),
+  );
+}
+
+function exportIsTypeOnly(node: ts.ExportDeclaration): boolean {
+  if (node.isTypeOnly) return true;
+  return Boolean(
+    node.exportClause &&
+      ts.isNamedExports(node.exportClause) &&
+      node.exportClause.elements.length > 0 &&
+      node.exportClause.elements.every((item) => item.isTypeOnly),
   );
 }
 
@@ -81,6 +92,20 @@ export function scanSourceFile(sourceFile: ts.SourceFile, relativePath: string):
     "openSync",
   ]);
   let reportedGlobalThis = false;
+  let classNameLocation: SourceLocation | undefined;
+
+  for (const statement of sourceFile.statements) {
+    if (!ts.isExpressionStatement(statement) || !ts.isStringLiteral(statement.expression)) break;
+    if (statement.expression.text === "use server") {
+      issues.push({
+        code: "CL016",
+        message:
+          "Server-action module directives are framework-specific and cannot be exported as a standalone library.",
+        blocking: true,
+        location: locationFor(sourceFile, statement.expression, relativePath),
+      });
+    }
+  }
 
   const addIssue = (issue: ScanIssue) => {
     const key = `${issue.code}:${issue.location.line}:${issue.location.column}:${issue.message}`;
@@ -110,7 +135,7 @@ export function scanSourceFile(sourceFile: ts.SourceFile, relativePath: string):
     ) {
       imports.push({
         specifier: node.moduleSpecifier.text,
-        kind: node.isTypeOnly ? "type-only" : "re-export",
+        kind: exportIsTypeOnly(node) ? "type-only" : "re-export",
         sourceText: node.getText(sourceFile),
         location: locationFor(sourceFile, node.moduleSpecifier, relativePath),
       });
@@ -122,6 +147,20 @@ export function scanSourceFile(sourceFile: ts.SourceFile, relativePath: string):
         location: locationFor(sourceFile, node, relativePath),
       });
     } else if (ts.isCallExpression(node)) {
+      if (
+        ts.isPropertyAccessExpression(node.expression) &&
+        (node.expression.name.text === "glob" || node.expression.name.text === "globEager") &&
+        ts.isMetaProperty(node.expression.expression) &&
+        node.expression.expression.keywordToken === ts.SyntaxKind.ImportKeyword
+      ) {
+        addIssue({
+          code: "CL019",
+          message:
+            "import.meta.glob requires a Vite-specific loader and is not traced automatically.",
+          blocking: true,
+          location: locationFor(sourceFile, node, relativePath),
+        });
+      }
       if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
         const argument = node.arguments[0];
         if (argument && ts.isStringLiteralLike(argument)) {
@@ -191,11 +230,20 @@ export function scanSourceFile(sourceFile: ts.SourceFile, relativePath: string):
       });
     }
 
+    if (
+      !classNameLocation &&
+      ts.isJsxAttribute(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === "className"
+    ) {
+      classNameLocation = locationFor(sourceFile, node, relativePath);
+    }
+
     ts.forEachChild(node, visit);
   };
 
   visit(sourceFile);
-  return { imports, issues };
+  return { imports, issues, ...(classNameLocation ? { classNameLocation } : {}) };
 }
 
 export function isSupportedSourceFile(fileName: string): boolean {
@@ -209,7 +257,7 @@ export function isSupportedSourceFile(fileName: string): boolean {
 }
 
 export function looksLikeAssetSpecifier(specifier: string): boolean {
-  const extension = path.extname(specifier).toLowerCase();
+  const extension = path.extname(specifier.split(/[?#]/u, 1)[0] ?? "").toLowerCase();
   return (
     extension.length > 0 &&
     ![".js", ".jsx", ".mjs", ".ts", ".tsx", ".mts", ".d.ts"].includes(extension)

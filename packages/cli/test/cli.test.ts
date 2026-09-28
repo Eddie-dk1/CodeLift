@@ -34,7 +34,7 @@ describe("CodeLift CLI", () => {
     expect(code).toBe(0);
     expect(stream.output().stderr).toBe("");
     expect(stream.output().stdout).toContain("CodeLift doctor — ready");
-    expect(stream.output().stdout).toContain("Profile: node-esm");
+    expect(stream.output().stdout).toContain("Profile: unknown");
   });
 
   it("prints doctor schema one as JSON", async () => {
@@ -137,7 +137,7 @@ describe("CodeLift CLI", () => {
       schemaVersion: number;
       issues: unknown[];
     };
-    expect(result.schemaVersion).toBe(2);
+    expect(result.schemaVersion).toBe(3);
     expect(result.issues.length).toBeGreaterThan(0);
   });
 

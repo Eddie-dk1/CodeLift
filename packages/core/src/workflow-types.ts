@@ -56,7 +56,7 @@ export interface DependencyDecision {
 }
 
 export interface ExtractionPlan {
-  schemaVersion: 1;
+  schemaVersion: 2;
   toolVersion: string;
   status: PlanStatus;
   source: {

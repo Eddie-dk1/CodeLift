@@ -55,6 +55,8 @@ copyDirectory(
   path.join(workspaceRoot, "packages", "studio-server", "dist"),
   path.join(cliDist, "studio-server"),
 );
+fs.rmSync(path.join(cliDist, "studio-server", "dev.js"), { force: true });
+fs.rmSync(path.join(cliDist, "studio-server", "dev.d.ts"), { force: true });
 rewriteFiles(path.join(cliDist, "studio-server"), [
   ['from "@codelift/core"', 'from "../core/index.js"'],
 ]);

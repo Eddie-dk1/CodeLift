@@ -101,20 +101,21 @@ function edgeId(
   );
 }
 
-function profileFor(entrypoint: string, options: ts.CompilerOptions): AnalysisProfile {
-  return entrypoint.toLowerCase().endsWith(".tsx") || options.jsx !== undefined
-    ? "react-library"
-    : "node-esm";
+function profileFor(nodes: GraphNode[]): AnalysisProfile {
+  if (
+    nodes.some((node) => node.kind === "local-file" && node.path?.endsWith(".tsx")) ||
+    nodes.some(
+      (node) =>
+        node.kind === "external-package" &&
+        (node.packageName === "react" || node.packageName === "react-dom"),
+    )
+  )
+    return "react-library";
+  if (nodes.some((node) => node.kind === "local-asset")) return "vite-library";
+  return "node-esm";
 }
 
 function profileProblems(profile: AnalysisProfile, options: ts.CompilerOptions): string[] {
-  if (profile === "node-esm") {
-    return options.module === ts.ModuleKind.NodeNext &&
-      options.moduleResolution === ts.ModuleResolutionKind.NodeNext
-      ? []
-      : ["The node-esm profile requires module and moduleResolution to be NodeNext."];
-  }
-
   const problems: string[] = [];
   const validResolution = new Set([
     ts.ModuleResolutionKind.NodeNext,
@@ -132,15 +133,19 @@ function profileProblems(profile: AnalysisProfile, options: ts.CompilerOptions):
     ts.JsxEmit.Preserve,
   ]);
   if (!validResolution.has(options.moduleResolution ?? ts.ModuleResolutionKind.Classic)) {
-    problems.push("The react-library profile requires NodeNext or Bundler module resolution.");
+    problems.push("The source project requires NodeNext or Bundler module resolution.");
   }
   if (!validModule.has(options.module ?? ts.ModuleKind.None)) {
-    problems.push("The react-library profile requires NodeNext, ESNext, or Preserve modules.");
+    problems.push("The source project requires NodeNext, ESNext, or Preserve modules.");
   }
-  if (!validJsx.has(options.jsx ?? ts.JsxEmit.None)) {
+  if (profile === "react-library" && !validJsx.has(options.jsx ?? ts.JsxEmit.None)) {
     problems.push("The react-library profile requires a supported React JSX mode.");
   }
-  if (options.jsxImportSource && options.jsxImportSource !== "react") {
+  if (
+    profile === "react-library" &&
+    options.jsxImportSource &&
+    options.jsxImportSource !== "react"
+  ) {
     problems.push(`Unsupported jsxImportSource: ${options.jsxImportSource}.`);
   }
   return problems;
@@ -183,8 +188,6 @@ export async function analyzeProject(
 
   const adapter = dependencies.compilerAdapter ?? new TypeScriptCompilerAdapter();
   const project = adapter.loadProject(configPath, entrypoint);
-  const profile = profileFor(entrypoint, project.compilerOptions);
-  const problems = profileProblems(profile, project.compilerOptions);
   const nodes = new Map<string, GraphNode>();
   const edges: GraphEdge[] = [];
   const issues: AnalysisIssue[] = [];
@@ -193,6 +196,9 @@ export async function analyzeProject(
   const declaredRanges = loadDeclaredRanges(projectRoot);
   const queue = [entrypoint];
   const visited = new Set<string>();
+  const classNameLocations: SourceLocation[] = [];
+  const ambientReports = new Set<string>();
+  const checker = project.program.getTypeChecker();
 
   const addIssue = (issue: Omit<AnalysisIssue, "id">) => {
     const completed = makeIssue(issue);
@@ -201,16 +207,6 @@ export async function analyzeProject(
       issues.push(completed);
     }
   };
-
-  for (const problem of problems) {
-    addIssue({
-      code: "CL001",
-      severity: "error",
-      blocking: true,
-      message: problem,
-      detail: "Choose a supported compiler configuration before creating an extraction plan.",
-    });
-  }
 
   const entryRelative = normalizeRelativePath(projectRoot, entrypoint);
   const entryNodeId = `file:${entryRelative}`;
@@ -332,7 +328,21 @@ export async function analyzeProject(
       if (path.extname(currentReal).toLowerCase() !== ".css") continue;
       const currentNodeId = `asset:${currentRelative}`;
       const css = fs.readFileSync(currentReal, "utf8");
-      for (const reference of scanCss(css, currentRelative)) {
+      let references: ReturnType<typeof scanCss>;
+      try {
+        references = scanCss(css, currentRelative);
+      } catch (error) {
+        addIssue({
+          code: "CL013",
+          severity: "error",
+          blocking: true,
+          message: `CSS could not be parsed: ${currentRelative}`,
+          detail: error instanceof Error ? error.message : String(error),
+          nodeId: currentNodeId,
+        });
+        continue;
+      }
+      for (const reference of references) {
         const dependency: DependencyRecord = reference;
         if (!recordAsset(currentNodeId, currentReal, dependency))
           addExternal(currentNodeId, dependency);
@@ -353,7 +363,57 @@ export async function analyzeProject(
       continue;
     }
 
+    if (sourceFile.impliedNodeFormat === ts.ModuleKind.CommonJS) {
+      addIssue({
+        code: "CL017",
+        severity: "error",
+        blocking: true,
+        message: `Source file ${currentRelative} is interpreted as CommonJS by NodeNext.`,
+        detail: "CommonJS extraction is not supported; use an ESM package or an .mts entrypoint.",
+        nodeId: currentNodeId,
+      });
+    }
+
     const scan = scanSourceFile(sourceFile, currentRelative);
+    if (scan.classNameLocation) classNameLocations.push(scan.classNameLocation);
+    if (!sourceFile.isDeclarationFile) {
+      const visitAmbient = (node: ts.Node): void => {
+        if (ts.isIdentifier(node)) {
+          const symbol = checker.getSymbolAtLocation(node);
+          const declarations = symbol?.getDeclarations() ?? [];
+          for (const declaration of declarations) {
+            const declarationFile = declaration.getSourceFile();
+            if (!declarationFile.isDeclarationFile) continue;
+            const real = toRealPath(declarationFile.fileName);
+            if (!isInsideRoot(projectRoot, real) || real.split(path.sep).includes("node_modules"))
+              continue;
+            const relative = normalizeRelativePath(projectRoot, real);
+            const key = `${currentRelative}:${relative}`;
+            if (ambientReports.has(key)) continue;
+            ambientReports.add(key);
+            const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+            addIssue({
+              code: "CL014",
+              severity: "error",
+              blocking: true,
+              message: `Source uses project-local ambient declarations from ${relative}.`,
+              detail:
+                "Ambient declarations are not exported automatically; make the type dependency explicit before extracting.",
+              location: {
+                path: currentRelative,
+                line: position.line + 1,
+                column: position.character + 1,
+                endLine: position.line + 1,
+                endColumn: position.character + node.getWidth(sourceFile) + 1,
+              },
+              nodeId: currentNodeId,
+            });
+          }
+        }
+        ts.forEachChild(node, visitAmbient);
+      };
+      ts.forEachChild(sourceFile, visitAmbient);
+    }
     for (const issue of scan.issues) {
       addIssue({
         code: issue.code,
@@ -473,6 +533,42 @@ export async function analyzeProject(
   }
 
   const nodeList = [...nodes.values()];
+  if (classNameLocations.length > 0) {
+    const hasLocalStyles = nodeList.some(
+      (node) => node.kind === "local-asset" && node.path?.endsWith(".css"),
+    );
+    const tailwind = Boolean(declaredRanges.tailwindcss);
+    if (tailwind || !hasLocalStyles) {
+      const location = classNameLocations.sort((left, right) =>
+        `${left.path}:${left.line}`.localeCompare(`${right.path}:${right.line}`),
+      )[0];
+      addIssue({
+        code: "CL015",
+        severity: "warning",
+        blocking: false,
+        message: tailwind
+          ? "JSX uses class names in a Tailwind project; application-global styling may not transfer."
+          : "JSX uses class names but the dependency graph contains no local stylesheet.",
+        detail:
+          "Review styling manually and explicitly accept this warning in the extraction plan. CodeLift will not copy application-global CSS.",
+        ...(location ? { location } : {}),
+      });
+    }
+  }
+  const profile = profileFor(nodeList);
+  const problems = profileProblems(profile, project.compilerOptions);
+  if (profile !== "node-esm" && nodeList.some((node) => node.kind === "node-builtin")) {
+    problems.push("Browser-oriented Vite library builds cannot include Node built-ins.");
+  }
+  for (const problem of problems) {
+    addIssue({
+      code: "CL001",
+      severity: "error",
+      blocking: true,
+      message: problem,
+      detail: "Choose a supported compiler configuration before creating an extraction plan.",
+    });
+  }
   sortAnalysisCollections({ nodes: nodeList, edges, issues });
   const cycles = computeCycles(nodeList, edges);
   const reasons = computeInclusionReasons(entryNodeId, nodeList, edges);
@@ -485,7 +581,7 @@ export async function analyzeProject(
     .sort((left, right) => left.name.localeCompare(right.name));
 
   const result: AnalysisResult = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     project: {
       root: projectRoot,
       tsconfig: normalizeRelativePath(projectRoot, configPath),

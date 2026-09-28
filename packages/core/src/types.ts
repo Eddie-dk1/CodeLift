@@ -1,4 +1,4 @@
-export type AnalysisProfile = "node-esm" | "react-library";
+export type AnalysisProfile = "node-esm" | "vite-library" | "react-library";
 
 export type GraphNodeKind =
   | "local-file"
@@ -91,7 +91,7 @@ export interface AnalysisStats {
 }
 
 export interface AnalysisResult {
-  schemaVersion: 2;
+  schemaVersion: 3;
   project: {
     root: string;
     tsconfig: string;
