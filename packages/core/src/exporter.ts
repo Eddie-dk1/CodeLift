@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import semver from "semver";
 import { AnalysisError } from "./errors.js";
 import { isInsideRoot, toRealPath } from "./path-utils.js";
 import { CODELIFT_TOOL_VERSION } from "./planning.js";
@@ -149,10 +150,19 @@ function dependenciesFor(plan: ExtractionPlan): Record<string, Record<string, st
   if (plan.target.profile !== "node-esm") {
     dev.vite = "^8.3.0";
   }
-  if (plan.target.profile === "react-library") {
-    dev["@types/react"] = "^19.0.0";
-    dev["@types/react-dom"] = "^19.0.0";
-  } else if (plan.analysis.stats.nodeBuiltins > 0) {
+  const reactRange = plan.dependencyDecisions.find((decision) => decision.name === "react")?.range;
+  const reactDomRange = plan.dependencyDecisions.find(
+    (decision) => decision.name === "react-dom",
+  )?.range;
+  if (reactRange) {
+    const major = semver.minVersion(reactRange)?.major ?? 19;
+    dev["@types/react"] = `^${major}.0.0`;
+  }
+  if (reactDomRange) {
+    const major = semver.minVersion(reactDomRange)?.major ?? 19;
+    dev["@types/react-dom"] = `^${major}.0.0`;
+  }
+  if (plan.analysis.stats.nodeBuiltins > 0) {
     dev["@types/node"] = "^24.0.0";
   }
   return result;

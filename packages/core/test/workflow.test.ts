@@ -180,6 +180,30 @@ describe("CodeLift extraction workflow", () => {
     expect(manifest.scripts.build).toBe("tsc -p tsconfig.build.json");
   });
 
+  it("keeps React type imports on TypeScript build and includes matching type definitions", async () => {
+    const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codelift-react-types-"));
+    temporaryDirectories.push(temporaryRoot);
+    const destination = path.join(temporaryRoot, "react-types-kit");
+    const plan = await createExtractionPlan({
+      projectRoot: fixture("react-library"),
+      tsconfigPath: "tsconfig.json",
+      entrypoint: "src/ReactTypes.ts",
+      packageName: "react-types-kit",
+      destination,
+    });
+    expect(plan.target.profile).toBe("node-esm");
+    await exportPackage(plan);
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(destination, "package.json"), "utf8"),
+    ) as {
+      devDependencies: Record<string, string>;
+      peerDependencies: Record<string, string>;
+    };
+    expect(manifest.devDependencies["@types/react"]).toBe("^19.0.0");
+    expect(manifest.devDependencies.vite).toBeUndefined();
+    expect(manifest.peerDependencies.react).toBe("^19.3.0");
+  });
+
   it("rejects a plan created by an older beta before writing a destination", async () => {
     const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codelift-old-plan-"));
     temporaryDirectories.push(temporaryRoot);

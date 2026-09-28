@@ -102,14 +102,7 @@ function edgeId(
 }
 
 function profileFor(nodes: GraphNode[]): AnalysisProfile {
-  if (
-    nodes.some((node) => node.kind === "local-file" && node.path?.endsWith(".tsx")) ||
-    nodes.some(
-      (node) =>
-        node.kind === "external-package" &&
-        (node.packageName === "react" || node.packageName === "react-dom"),
-    )
-  )
+  if (nodes.some((node) => node.kind === "local-file" && node.path?.endsWith(".tsx")))
     return "react-library";
   if (nodes.some((node) => node.kind === "local-asset")) return "vite-library";
   return "node-esm";

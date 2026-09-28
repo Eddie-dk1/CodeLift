@@ -46,6 +46,12 @@ const cases = [
   },
   {
     fixture: "react-library",
+    entrypoint: "src/ReactTypes.ts",
+    packageName: "codelift-smoke-react-types",
+    expectedStatus: "passed",
+  },
+  {
+    fixture: "react-library",
     entrypoint: "src/StyleOnly.ts",
     packageName: "codelift-smoke-style-only",
     expectedStatus: "passed",
@@ -169,13 +175,15 @@ try {
     );
     const plan = JSON.parse(fs.readFileSync(planPath, "utf8"));
     assert.equal(plan.status, "ready");
-    if (item.entrypoint === "src/math.ts") {
+    if (item.entrypoint === "src/math.ts" || item.entrypoint === "src/ReactTypes.ts") {
       assert.equal(plan.target.profile, "node-esm");
       assert.equal(plan.expectedFiles.includes("vite.config.ts"), false);
-      assert.equal(
-        plan.dependencyDecisions.some((decision) => decision.name === "react"),
-        false,
-      );
+      if (item.entrypoint === "src/math.ts") {
+        assert.equal(
+          plan.dependencyDecisions.some((decision) => decision.name === "react"),
+          false,
+        );
+      }
     }
     if (item.entrypoint === "src/StyleOnly.ts") {
       assert.equal(plan.target.profile, "vite-library");

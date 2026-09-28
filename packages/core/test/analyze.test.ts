@@ -118,6 +118,19 @@ describe("analyzeProject", () => {
     expect(result.issues).toHaveLength(0);
   });
 
+  it("does not add Vite solely for a type-only React dependency", async () => {
+    const result = await analyzeProject({
+      projectRoot: fixture("react-library"),
+      tsconfigPath: "tsconfig.json",
+      entrypoint: "src/ReactTypes.ts",
+    });
+    expect(result.project.profile).toBe("node-esm");
+    expect(result.externalPackages.map((dependency) => dependency.name)).toEqual(["react"]);
+    expect(result.edges).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: "type-only", specifier: "react" })]),
+    );
+  });
+
   it("follows re-exports and nested aliases without a baseUrl", async () => {
     const result = await analyzeProject({
       projectRoot: fixture("alias-no-baseurl"),
