@@ -30,7 +30,7 @@ vi.mock("@xyflow/react", () => ({
 }));
 
 const analysis: AnalysisResult = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   project: {
     root: "/projects/invoice",
     tsconfig: "tsconfig.json",

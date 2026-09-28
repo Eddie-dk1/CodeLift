@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
+import semver from "semver";
 import ts from "typescript-compat";
+import YAML from "yaml";
 import { analyzeProject } from "./analyze.js";
 import { AnalysisError } from "./errors.js";
 import { stableId } from "./graph.js";
@@ -16,7 +18,7 @@ import type {
 } from "./workflow-types.js";
 import { digestExtractionPlan, digestFile, sha256, stableJson } from "./workflow-utils.js";
 
-export const CODELIFT_TOOL_VERSION = "0.4.0-beta.0";
+export const CODELIFT_TOOL_VERSION = "0.4.0-beta.1";
 
 function assertPackageName(packageName: string): void {
   const valid = /^(?:@[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*|[a-z0-9][a-z0-9._-]*)$/u;
@@ -57,11 +59,13 @@ function relativeSpecifier(
   fromFile: string,
   targetFile: string,
   targetKind: GraphNode["kind"],
+  originalSpecifier: string,
 ): string {
   const outputTarget = targetKind === "local-file" ? outputSpecifier(targetFile) : targetFile;
   let relative = path.posix.relative(path.posix.dirname(fromFile), outputTarget);
   if (!relative.startsWith(".")) relative = `./${relative}`;
-  return relative;
+  const pathname = originalSpecifier.split(/[?#]/u, 1)[0] ?? originalSpecifier;
+  return relative + originalSpecifier.slice(pathname.length);
 }
 
 function planIssue(
@@ -84,6 +88,8 @@ function dependencyDecisions(
   externalPackages: ExtractionPlan["analysis"]["externalPackages"],
   overrides: Record<string, DependencyClassification>,
   issues: AnalysisIssue[],
+  lockedVersions: Map<string, string>,
+  lockfilePresent: boolean,
 ): DependencyDecision[] {
   const decisions: DependencyDecision[] = [];
   for (const dependency of externalPackages) {
@@ -111,10 +117,9 @@ function dependencyDecisions(
     }
     if (
       range.includes("||") ||
-      range.includes("/") ||
       /^[a-z][a-z+.-]*:/iu.test(range.trim()) ||
-      /^(?:\*|alpha|beta|latest|next)$/iu.test(range.trim()) ||
-      !/[0-9]/u.test(range)
+      /(?:^|[\s.])[x*](?:$|[\s.])/iu.test(range.trim()) ||
+      !semver.validRange(range)
     ) {
       issues.push(
         planIssue(
@@ -122,6 +127,27 @@ function dependencyDecisions(
           `Dependency ${dependency.name} uses an ambiguous or unsupported range: ${range}`,
           true,
           "Choose an explicit semver range before exporting the package.",
+        ),
+      );
+      continue;
+    }
+    const lockedVersion = lockedVersions.get(dependency.name);
+    if (lockfilePresent && !lockedVersion) {
+      issues.push(
+        planIssue(
+          "CLP007",
+          `No locked version was found for ${dependency.name}.`,
+          false,
+          "Review the source lockfile and explicitly accept this warning before exporting.",
+        ),
+      );
+    }
+    if (lockedVersion && !semver.satisfies(lockedVersion, range)) {
+      issues.push(
+        planIssue(
+          "CLP006",
+          `Lockfile version ${lockedVersion} for ${dependency.name} does not satisfy ${range}.`,
+          true,
         ),
       );
       continue;
@@ -151,6 +177,42 @@ function dependencyDecisions(
   return decisions.sort((left, right) =>
     `${left.classification}:${left.name}`.localeCompare(`${right.classification}:${right.name}`),
   );
+}
+
+function lockedDependencies(lockfilePath: string | undefined): Map<string, string> {
+  const versions = new Map<string, string>();
+  if (!lockfilePath) return versions;
+  try {
+    if (path.basename(lockfilePath) === "package-lock.json") {
+      const lock = JSON.parse(fs.readFileSync(lockfilePath, "utf8")) as {
+        packages?: Record<string, { version?: string }>;
+      };
+      for (const [location, entry] of Object.entries(lock.packages ?? {})) {
+        if (location.startsWith("node_modules/") && entry.version) {
+          versions.set(location.slice("node_modules/".length), entry.version);
+        }
+      }
+    } else if (path.basename(lockfilePath) === "pnpm-lock.yaml") {
+      const lock = YAML.parse(fs.readFileSync(lockfilePath, "utf8")) as {
+        importers?: Record<string, Record<string, Record<string, { version?: string } | string>>>;
+      };
+      const importer = lock.importers?.["."];
+      for (const group of ["dependencies", "devDependencies", "optionalDependencies"]) {
+        for (const [name, entry] of Object.entries(importer?.[group] ?? {})) {
+          const rawVersion = typeof entry === "string" ? entry : entry.version;
+          const version = rawVersion?.split("(", 1)[0];
+          if (version && semver.valid(version)) versions.set(name, version);
+        }
+      }
+    }
+  } catch {
+    // A malformed lockfile is reported by the caller rather than treated as a version.
+    throw new AnalysisError(
+      "LOCKFILE_INVALID",
+      `Cannot parse dependency lockfile: ${lockfilePath}`,
+    );
+  }
+  return versions;
 }
 
 function hasDefaultExport(fileName: string): boolean {
@@ -209,7 +271,12 @@ export async function createExtractionPlan(
     const sourceDestination = destinationBySource.get(sourceNode.path);
     const targetDestination = destinationBySource.get(targetNode.path);
     if (!sourceDestination || !targetDestination) continue;
-    const rewritten = relativeSpecifier(sourceDestination, targetDestination, targetNode.kind);
+    const rewritten = relativeSpecifier(
+      sourceDestination,
+      targetDestination,
+      targetNode.kind,
+      edge.specifier,
+    );
     if (rewritten === edge.specifier) continue;
     rewrites.push({
       file: sourceNode.path,
@@ -247,41 +314,69 @@ export async function createExtractionPlan(
     }),
   );
   const issues = [...analysis.issues];
-  if (analysis.externalPackages.some((dependency) => dependency.name === "next")) {
+  if (
+    analysis.externalPackages.some(
+      (dependency) => dependency.name === "next" || dependency.name === "server-only",
+    )
+  ) {
     issues.push(
       planIssue(
         "CLP005",
-        "Next.js runtime imports cannot be exported as a standalone React library.",
+        "Next.js runtime and server-only imports cannot be exported as a standalone library.",
         true,
         "Choose a framework-independent entrypoint, or keep this module inside the Next.js application.",
       ),
     );
   }
   const planningPackages = [...analysis.externalPackages];
-  if (analysis.project.profile === "react-library" && fs.existsSync(packageJsonPath)) {
+  if (fs.existsSync(packageJsonPath)) {
     const manifest = JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as Record<
       string,
       Record<string, string> | undefined
     >;
+    for (const dependency of planningPackages) {
+      const ranges = new Set(
+        ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]
+          .map((field) => manifest[field]?.[dependency.name])
+          .filter((range): range is string => Boolean(range)),
+      );
+      if (ranges.size > 1) {
+        issues.push(
+          planIssue(
+            "CLP008",
+            `Conflicting declared ranges for ${dependency.name}: ${[...ranges].sort().join(", ")}.`,
+            true,
+          ),
+        );
+      }
+    }
+  }
+  if (analysis.project.profile === "react-library") {
+    const manifest = fs.existsSync(packageJsonPath)
+      ? (JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as Record<
+          string,
+          Record<string, string> | undefined
+        >)
+      : {};
     for (const name of ["react", "react-dom"]) {
       if (planningPackages.some((dependency) => dependency.name === name)) continue;
       const range =
         manifest.dependencies?.[name] ??
         manifest.peerDependencies?.[name] ??
         manifest.devDependencies?.[name];
-      if (range) {
-        planningPackages.push({
-          name,
-          specifiers: [name === "react" ? "react/jsx-runtime" : name],
-          declaredRange: range,
-        });
-      }
+      planningPackages.push({
+        name,
+        specifiers: [name === "react" ? "react/jsx-runtime" : name],
+        ...(range ? { declaredRange: range } : {}),
+      });
     }
   }
   const decisions = dependencyDecisions(
     planningPackages,
     request.dependencyOverrides ?? {},
     issues,
+    lockedDependencies(lockfilePath),
+    Boolean(lockfilePath),
   );
   const acceptedWarningIds = [...new Set(request.acceptedWarningIds ?? [])].sort();
   const unacceptedWarnings = issues.filter(
@@ -304,7 +399,7 @@ export async function createExtractionPlan(
     "package.json",
     "tsconfig.build.json",
     "tsconfig.json",
-    ...(analysis.project.profile === "react-library" ? ["vite.config.ts"] : []),
+    ...(analysis.project.profile !== "node-esm" ? ["vite.config.ts"] : []),
     ...(entrypointDestination === publicEntrypoint ? [] : [publicEntrypoint]),
   ];
   if (request.copyLicense && fs.existsSync(path.join(analysis.project.root, "LICENSE"))) {
@@ -312,7 +407,7 @@ export async function createExtractionPlan(
   }
 
   const planWithoutDigest = {
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
     toolVersion: CODELIFT_TOOL_VERSION,
     status,
     source: {

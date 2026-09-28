@@ -4,11 +4,7 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "jsx": "react-jsx",
-    "strict": true,
-    "resolveJsonModule": true,
-    "paths": {
-      "@ui/*": ["src/*"]
-    }
+    "strict": true
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"]
 }

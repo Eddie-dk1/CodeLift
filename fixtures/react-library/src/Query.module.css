@@ -1,0 +1,8 @@
+/* @import "./missing.css"; */
+@import url("@ui/theme.css");
+
+.mark {
+  composes: surface from "@ui/surface.module.css";
+  background: url("./mark.svg?v=1");
+  /* background: url("./missing.svg"); */
+}

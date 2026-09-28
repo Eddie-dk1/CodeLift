@@ -141,7 +141,7 @@ export async function runCli(argv: string[], io: CliIo = defaultIo): Promise<num
   program
     .name("codelift")
     .description("Analyze and extract a TypeScript or React module into a standalone package.")
-    .version("0.4.0-beta.0")
+    .version("0.4.0-beta.1")
     .argument("[path]", "project directory or TypeScript entrypoint")
     .option("--project <path>", "project root; defaults to the current directory")
     .option("--tsconfig <path>", "initial TypeScript configuration")

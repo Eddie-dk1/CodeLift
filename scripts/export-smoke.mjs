@@ -19,6 +19,12 @@ const cases = [
     expectedStatus: "passed",
   },
   {
+    fixture: "alias-no-baseurl",
+    entrypoint: "src/index.ts",
+    packageName: "codelift-smoke-alias-bundler",
+    expectedStatus: "passed",
+  },
+  {
     fixture: "react-library",
     entrypoint: "src/Card.tsx",
     packageName: "codelift-smoke-react",
@@ -35,8 +41,27 @@ const cases = [
   {
     fixture: "react-library",
     entrypoint: "src/math.ts",
-    packageName: "codelift-smoke-react-utility",
+    packageName: "codelift-smoke-pure-ts",
     expectedStatus: "passed",
+  },
+  {
+    fixture: "react-library",
+    entrypoint: "src/ReactTypes.ts",
+    packageName: "codelift-smoke-react-types",
+    expectedStatus: "passed",
+  },
+  {
+    fixture: "react-library",
+    entrypoint: "src/StyleOnly.ts",
+    packageName: "codelift-smoke-style-only",
+    expectedStatus: "passed",
+  },
+  {
+    fixture: "react-library",
+    entrypoint: "src/Query.tsx",
+    packageName: "codelift-smoke-resource-query",
+    expectedStatus: "passed",
+    expectedRender: "passed",
   },
 ];
 
@@ -104,6 +129,13 @@ try {
   run(npm, ["install", tarball, "--ignore-scripts", "--no-audit", "--no-fund"], toolRoot);
   const cli = path.join(toolRoot, "node_modules", "codelift-cli", "dist", "bin.js");
   assert.ok(fs.existsSync(cli), "The packed CLI did not install its executable.");
+  assert.equal(
+    fs.existsSync(
+      path.join(toolRoot, "node_modules", "codelift-cli", "dist", "studio-server", "dev.js"),
+    ),
+    false,
+    "The packed CLI must not contain its development-only Studio launcher.",
+  );
 
   for (const item of cases) {
     const fixtureRoot = path.join(workspaceRoot, "fixtures", item.fixture);
@@ -143,6 +175,23 @@ try {
     );
     const plan = JSON.parse(fs.readFileSync(planPath, "utf8"));
     assert.equal(plan.status, "ready");
+    if (item.entrypoint === "src/math.ts" || item.entrypoint === "src/ReactTypes.ts") {
+      assert.equal(plan.target.profile, "node-esm");
+      assert.equal(plan.expectedFiles.includes("vite.config.ts"), false);
+      if (item.entrypoint === "src/math.ts") {
+        assert.equal(
+          plan.dependencyDecisions.some((decision) => decision.name === "react"),
+          false,
+        );
+      }
+    }
+    if (item.entrypoint === "src/StyleOnly.ts") {
+      assert.equal(plan.target.profile, "vite-library");
+      assert.equal(
+        plan.dependencyDecisions.some((decision) => decision.name === "react"),
+        false,
+      );
+    }
     run(process.execPath, [cli, "extract", "--plan", planPath], caseRoot);
     assert.ok(fs.existsSync(path.join(destination, "codelift-report.json")));
 

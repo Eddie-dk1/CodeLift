@@ -38,8 +38,9 @@ npx codelift-cli@beta doctor ./project --entry src/index.ts
 npx codelift-cli@beta doctor --entry src/Card.tsx --tsconfig tsconfig.json --format json
 ```
 
-It reports the Node/npm versions, compiler config candidates, entrypoints, detected profile, and
-compatibility issues.
+It reports the Node/npm versions, compiler config candidates, entrypoints, and compatibility
+issues. A `.ts` entrypoint's final output profile is determined by dependency analysis, so doctor
+may report it as unknown without building the graph.
 
 ## Analyze in the terminal
 
@@ -96,14 +97,23 @@ import {
 `analyzeProject` remains explicit and requires a project root, `tsconfig`, and entrypoint. Automatic
 project discovery belongs to the CLI and Studio.
 
-## Supported beta profile
+## Supported beta profiles
 
-- Node ESM with `.ts` and `.mts`;
-- React with `.tsx` and standard JSX modes;
+- Node ESM with `.ts` and `.mts` and a TypeScript build;
+- Vite libraries for CSS/assets without React;
+- React libraries with `.tsx` and standard JSX modes;
 - relative imports, TypeScript `paths`, re-exports, type-only imports, package subpaths, Node
   built-ins, and literal `import()`;
 - CSS, CSS Modules, JSON, SVG, common image formats, and fonts;
 - one entrypoint and one TypeScript configuration per extraction.
+
+The source `tsconfig` is used for resolution; the output build profile follows the reachable
+graph. A pure TypeScript utility in a JSX/Bundler application does not gain React or Vite.
+Project-local ambient declarations and Next.js/server-only modules block export. Application-global
+Tailwind or class names without an included stylesheet require a manual styling decision; CodeLift
+does not copy the whole application stylesheet. Dependency ranges come from the source manifest
+and are checked against npm/pnpm lockfile versions when present. Older extraction plans must be
+recreated for Analysis schema 3 / Plan schema 2.
 
 Not yet supported: CommonJS, Sass/Less, React Native, arbitrary bundler plugins, multiple
 entrypoints, project references, workspace package transfer, and automatic test migration.

@@ -210,7 +210,7 @@ export async function createStudioServer(options: StudioServerOptions): Promise<
       initialEntrypoint: initialEntrypoint ?? discovered.entrypoint,
       ambiguousTsconfig: discovered.ambiguous,
       capabilities: {
-        profiles: ["node-esm", "react-library"],
+        profiles: ["node-esm", "vite-library", "react-library"],
         sourcePreview: true,
         extraction: true,
         verification: true,

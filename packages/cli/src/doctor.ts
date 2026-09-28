@@ -103,9 +103,9 @@ function profileFromConfig(
     });
     return null;
   }
-  return entrypoint.endsWith(".tsx") || parsed.options.jsx !== undefined
-    ? "react-library"
-    : "node-esm";
+  // Doctor deliberately does not build the graph. A .ts file may import TSX or assets,
+  // so its output profile cannot be known until analyzeProject traverses dependencies.
+  return entrypoint.endsWith(".tsx") ? "react-library" : null;
 }
 
 export function diagnoseProject(request: DoctorRequest, runtime: DoctorRuntime = {}): DoctorResult {

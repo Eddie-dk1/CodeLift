@@ -1,0 +1,5 @@
+{
+  "name": "codelift-fixture-ambient",
+  "private": true,
+  "type": "module"
+}
