@@ -3,7 +3,7 @@
 All notable changes to CodeLift are documented here. The project follows Semantic Versioning while
 public JSON schemas are versioned independently.
 
-## 0.4.0-beta.1 — pending publication
+## 0.4.0-beta.1 — 2026-09-30
 
 ### Changed
 

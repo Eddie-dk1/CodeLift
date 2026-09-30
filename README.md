@@ -386,9 +386,8 @@ workflow. The project is licensed under [MIT](LICENSE).
 
 - `0.4.0-beta.0` — published npm beta with one-command launch, analysis, export, verification,
   and Studio workflow;
-- `0.4.0-beta.1` — source release candidate with graph-based profiles, improved CSS/alias tracing,
-  portability diagnostics, and dependency range checks; not published until release preflight and
-  explicit confirmation;
+- `0.4.0-beta.1` — current npm beta with graph-based profiles, improved CSS/alias tracing,
+  portability diagnostics, and dependency range checks; run `npx codelift-cli@beta`;
 - `1.0.0` — after Node utility, React component, and alias-heavy real-world migrations stabilize the
   schemas and edge cases.
 
